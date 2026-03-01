@@ -478,29 +478,35 @@ export default function MenuScreen({ onPlay, onCreateLobby, onJoinLobby, error, 
         </h1>
         <p className="menu-subtitle">BUILD · CONNECT · DOMINATE</p>
 
-        {/* Player count + XP bar + Coins */}
-        <div className="menu-status-bar">
-          {onlinePlayers > 0 && (
-            <div className="menu-online-count">
-              <span className="online-dot" />
-              <span>{onlinePlayers} player{onlinePlayers !== 1 ? 's' : ''} online</span>
-            </div>
-          )}
-          <div className="menu-xp-display">
-            <span className="xp-level">LVL {prog.level}</span>
-            <span className="xp-title">{prog.currentTitle}</span>
-            <div className="xp-bar">
-              <div className="xp-bar-fill" style={{ width: `${xpPercent}%` }} />
-            </div>
-            <span className="xp-text">{Math.floor(xpIntoLevel)}/{xpNeeded} XP</span>
+        {/* Player Hub — XP + Coins + Shop */}
+        <div className="player-hub">
+          <div className="hub-top-row">
+            <div className="hub-level-badge">LVL {prog.level}</div>
+            <span className="hub-title">{prog.currentTitle}</span>
+            {onlinePlayers > 0 && (
+              <div className="hub-online">
+                <span className="online-dot" />
+                <span>{onlinePlayers} online</span>
+              </div>
+            )}
           </div>
-          <div className="menu-coin-display">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="#ffd700" stroke="#b8960c" strokeWidth="1.5"><circle cx="12" cy="12" r="10"/><text x="12" y="16" textAnchor="middle" fontSize="12" fill="#b8960c" fontWeight="bold" stroke="none">C</text></svg>
-            <span className="coin-amount">{prog.coins.toLocaleString()}</span>
+          <div className="hub-xp-row">
+            <div className="hub-xp-bar">
+              <div className="hub-xp-fill" style={{ width: `${xpPercent}%` }} />
+            </div>
+            <span className="hub-xp-text">{Math.floor(xpIntoLevel)}/{xpNeeded} XP</span>
           </div>
-          <button className="btn btn-cosmetics" onClick={() => { setShowShop(true); setShopView('main'); }}>
-            SHOP
-          </button>
+          <div className="hub-bottom-row">
+            <div className="hub-coins">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="#ffd700" stroke="#b8960c" strokeWidth="1.5"><circle cx="12" cy="12" r="10"/><text x="12" y="16" textAnchor="middle" fontSize="12" fill="#b8960c" fontWeight="bold" stroke="none">C</text></svg>
+              <span className="hub-coin-amount">{prog.coins.toLocaleString()}</span>
+              <span className="hub-coin-label">COINS</span>
+            </div>
+            <button className="btn-shop" onClick={() => { setShowShop(true); setShopView('main'); }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+              SHOP
+            </button>
+          </div>
         </div>
 
         {/* ==================== SHOP OVERLAY ==================== */}

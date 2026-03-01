@@ -62,7 +62,7 @@ html, body, #root {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 24px;
+  gap: 18px;
 }
 
 .menu-title {
@@ -93,27 +93,26 @@ html, body, #root {
 
 .menu-subtitle {
   font-family: var(--font-body);
-  font-size: 14px;
+  font-size: 12px;
   color: var(--text-secondary);
   letter-spacing: 6px;
   text-transform: uppercase;
-  margin-top: -12px;
+  margin-top: -14px;
 }
 
 .menu-buttons {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-top: 24px;
-  width: 280px;
+  gap: 10px;
+  width: 380px;
 }
 
 .menu-input {
   width: 100%;
   padding: 14px 20px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-glow);
-  border-radius: 8px;
+  background: rgba(8, 8, 28, 0.7);
+  border: 1px solid rgba(0, 240, 255, 0.18);
+  border-radius: 12px;
   color: var(--text-primary);
   font-family: var(--font-display);
   font-size: 14px;
@@ -122,32 +121,34 @@ html, body, #root {
   outline: none;
   transition: all 0.3s ease;
   text-transform: uppercase;
+  backdrop-filter: blur(8px);
 }
 
 .menu-input::placeholder {
   color: var(--text-secondary);
   text-transform: none;
   letter-spacing: 1px;
+  font-family: var(--font-body);
 }
 
 .menu-input:focus {
-  border-color: var(--accent-cyan);
-  box-shadow: 0 0 20px var(--glow-cyan);
+  border-color: rgba(0, 240, 255, 0.6);
+  box-shadow: 0 0 20px rgba(0,240,255,0.12), inset 0 0 10px rgba(0,240,255,0.04);
 }
 
 .menu-name-input {
-  margin-bottom: 8px;
+  font-size: 15px;
+  letter-spacing: 3px;
 }
 
 /* Mode Toggle */
 .mode-toggle {
   display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
-  background: rgba(10, 10, 26, 0.4);
+  gap: 0;
+  background: rgba(8, 8, 28, 0.8);
   padding: 4px;
-  border-radius: 8px;
-  border: 1px solid var(--border-glow);
+  border-radius: 12px;
+  border: 1px solid rgba(0,240,255,0.15);
 }
 
 .mode-btn {
@@ -158,10 +159,10 @@ html, body, #root {
   font-family: var(--font-display);
   font-size: 11px;
   letter-spacing: 2px;
-  padding: 10px 0;
-  border-radius: 6px;
+  padding: 11px 0;
+  border-radius: 9px;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all 0.25s ease;
 }
 
 .mode-btn:hover {
@@ -173,20 +174,20 @@ html, body, #root {
   background: var(--accent-cyan);
   color: #000;
   font-weight: 700;
-  box-shadow: 0 0 15px var(--glow-cyan);
+  box-shadow: 0 0 18px rgba(0,240,255,0.4);
 }
 
 .btn {
-  padding: 14px 28px;
+  padding: 16px 28px;
   font-family: var(--font-display);
   font-size: 14px;
   font-weight: 700;
   letter-spacing: 4px;
   text-transform: uppercase;
   border: 1px solid;
-  border-radius: 6px;
+  border-radius: 12px;
   cursor: pointer;
-  transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
   position: relative;
   overflow: hidden;
   backdrop-filter: blur(8px);
@@ -208,39 +209,53 @@ html, body, #root {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, rgba(0, 240, 255, 0.15), rgba(0, 240, 255, 0.05));
+  background: linear-gradient(135deg, rgba(0, 240, 255, 0.18), rgba(0, 200, 255, 0.08));
   border-color: var(--accent-cyan);
   color: var(--accent-cyan);
+  font-size: 16px;
+  letter-spacing: 5px;
+  padding: 18px 28px;
+  animation: playGlow 3s ease-in-out infinite;
+}
+
+@keyframes playGlow {
+  0%, 100% { box-shadow: 0 0 15px rgba(0,240,255,0.2), inset 0 0 10px rgba(0,240,255,0.04); }
+  50% { box-shadow: 0 0 35px rgba(0,240,255,0.4), inset 0 0 20px rgba(0,240,255,0.08); }
 }
 
 .btn-primary:hover {
-  background: linear-gradient(135deg, rgba(0, 240, 255, 0.4), rgba(0, 240, 255, 0.1));
-  box-shadow: 0 0 40px var(--glow-cyan), inset 0 0 20px rgba(0, 240, 255, 0.1);
+  background: linear-gradient(135deg, rgba(0, 240, 255, 0.35), rgba(0, 240, 255, 0.12));
+  box-shadow: 0 0 50px rgba(0,240,255,0.5), inset 0 0 20px rgba(0, 240, 255, 0.1);
   transform: translateY(-3px) scale(1.02);
   border-color: #fff;
 }
 
 .btn-secondary {
-  background: var(--bg-card);
-  border-color: var(--border-glow);
-  color: var(--text-primary);
+  background: rgba(8, 8, 28, 0.6);
+  border-color: rgba(0,240,255,0.25);
+  color: rgba(255,255,255,0.7);
+  padding: 15px 28px;
 }
 
 .btn-secondary:hover {
-  border-color: var(--accent-cyan);
-  box-shadow: 0 0 20px var(--glow-cyan);
+  border-color: rgba(0,240,255,0.6);
+  color: var(--text-primary);
+  box-shadow: 0 0 20px rgba(0,240,255,0.15);
   transform: translateY(-2px);
 }
 
 .btn-accent {
-  background: linear-gradient(135deg, rgba(255, 0, 110, 0.15), rgba(255, 0, 110, 0.05));
+  background: linear-gradient(135deg, rgba(255, 0, 110, 0.2), rgba(255, 0, 110, 0.08));
   border-color: var(--accent-pink);
   color: var(--accent-pink);
+  font-size: 15px;
+  letter-spacing: 4px;
+  padding: 16px 20px;
 }
 
 .btn-accent:hover {
-  background: linear-gradient(135deg, rgba(255, 0, 110, 0.3), rgba(255, 0, 110, 0.1));
-  box-shadow: 0 0 30px var(--glow-pink);
+  background: linear-gradient(135deg, rgba(255, 0, 110, 0.35), rgba(255, 0, 110, 0.12));
+  box-shadow: 0 0 30px rgba(255,0,110,0.4);
   transform: translateY(-2px);
 }
 
@@ -251,12 +266,15 @@ html, body, #root {
 
 .join-row .menu-input {
   flex: 1;
+  text-align: left;
+  padding-left: 18px;
 }
 
 .join-row .btn {
   white-space: nowrap;
-  font-size: 12px;
-  padding: 14px 16px;
+  font-size: 13px;
+  letter-spacing: 3px;
+  padding: 14px 20px;
 }
 
 .menu-error {
@@ -277,19 +295,19 @@ html, body, #root {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin: 4px 0;
+  margin: 2px 0;
 }
 
 .menu-divider-line {
   flex: 1;
   height: 1px;
-  background: var(--border-glow);
+  background: rgba(0,240,255,0.1);
 }
 
 .menu-divider-text {
   color: var(--text-secondary);
   font-family: var(--font-display);
-  font-size: 10px;
+  font-size: 9px;
   letter-spacing: 3px;
   white-space: nowrap;
 }
@@ -2450,32 +2468,161 @@ html, body, #root {
 
 /* ==================== Menu Status Bar & XP ==================== */
 
-.menu-status-bar {
+/* ==================== Player Hub ==================== */
+
+.player-hub {
+  width: 380px;
+  background: rgba(8, 8, 28, 0.75);
+  border: 1px solid rgba(0, 240, 255, 0.18);
+  border-radius: 16px;
+  padding: 16px 20px;
   display: flex;
   flex-direction: column;
-  align-items: center;
   gap: 10px;
-  margin-top: 12px;
-  width: 340px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 0 30px rgba(0,240,255,0.04), inset 0 1px 0 rgba(255,255,255,0.06);
 }
 
-.menu-online-count {
+.hub-top-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.hub-level-badge {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 900;
+  color: var(--accent-cyan);
+  letter-spacing: 2px;
+  text-shadow: 0 0 12px rgba(0,240,255,0.5);
+  white-space: nowrap;
+}
+
+.hub-title {
+  font-family: var(--font-display);
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  color: var(--accent-yellow, #ffd700);
+  background: rgba(255,215,0,0.1);
+  border: 1px solid rgba(255,215,0,0.2);
+  border-radius: 5px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.hub-online {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  font-family: var(--font-display);
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  color: var(--accent-green);
+  opacity: 0.8;
+}
+
+.online-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent-green);
+  box-shadow: 0 0 6px var(--accent-green);
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+.hub-xp-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.hub-xp-bar {
+  flex: 1;
+  height: 5px;
+  background: rgba(255,255,255,0.07);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.hub-xp-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-cyan), var(--accent-green));
+  border-radius: 3px;
+  transition: width 0.6s ease;
+  box-shadow: 0 0 6px rgba(0,240,255,0.4);
+}
+
+.hub-xp-text {
+  font-family: var(--font-display);
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: rgba(255,255,255,0.35);
+  white-space: nowrap;
+}
+
+.hub-bottom-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 2px;
+}
+
+.hub-coins {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255,215,0,0.07);
+  border: 1px solid rgba(255,215,0,0.2);
+  border-radius: 10px;
+  padding: 10px 14px;
+}
+
+.hub-coin-amount {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 900;
+  color: #ffd700;
+  letter-spacing: 1px;
+  text-shadow: 0 0 12px rgba(255,215,0,0.4);
+  line-height: 1;
+}
+
+.hub-coin-label {
+  font-family: var(--font-display);
+  font-size: 8px;
+  letter-spacing: 2px;
+  color: rgba(255,215,0,0.5);
+  align-self: flex-end;
+  margin-bottom: 2px;
+}
+
+.btn-shop {
   display: flex;
   align-items: center;
   gap: 8px;
   font-family: var(--font-display);
-  font-size: 12px;
-  letter-spacing: 2px;
-  color: var(--accent-green);
+  font-size: 13px;
+  letter-spacing: 2.5px;
+  padding: 10px 22px;
+  border-radius: 10px;
+  border: 1px solid rgba(180,74,255,0.5);
+  background: linear-gradient(135deg, rgba(180,74,255,0.2), rgba(100,30,180,0.3));
+  color: #d090ff;
+  cursor: pointer;
+  transition: all 0.25s;
+  white-space: nowrap;
+  box-shadow: 0 4px 16px rgba(180,74,255,0.15);
 }
 
-.online-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--accent-green);
-  box-shadow: 0 0 8px var(--accent-green);
-  animation: pulse-dot 1.5s ease-in-out infinite;
+.btn-shop:hover {
+  background: linear-gradient(135deg, rgba(180,74,255,0.35), rgba(120,40,200,0.4));
+  border-color: rgba(180,74,255,0.8);
+  color: #e8b4ff;
+  box-shadow: 0 0 24px rgba(180,74,255,0.35), 0 4px 16px rgba(180,74,255,0.2);
+  transform: translateY(-2px);
 }
 
 @keyframes pulse-dot {
@@ -2483,57 +2630,7 @@ html, body, #root {
   50% { opacity: 0.5; transform: scale(0.8); }
 }
 
-.menu-xp-display {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 8px 12px;
-  background: rgba(0, 240, 255, 0.04);
-  border: 1px solid rgba(0, 240, 255, 0.1);
-  border-radius: 8px;
-}
-
-.xp-level {
-  font-family: var(--font-display);
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--accent-cyan);
-  letter-spacing: 2px;
-}
-
-.xp-title {
-  font-family: var(--font-display);
-  font-size: 10px;
-  letter-spacing: 1.5px;
-  color: var(--accent-yellow);
-  padding: 2px 6px;
-  background: rgba(255, 190, 11, 0.1);
-  border-radius: 4px;
-}
-
-.xp-bar {
-  flex: 1;
-  height: 4px;
-  min-width: 60px;
-  background: rgba(255, 255, 255, 0.08);
-  border-radius: 2px;
-  overflow: hidden;
-}
-
-.xp-bar-fill {
-  height: 100%;
-  background: linear-gradient(90deg, var(--accent-cyan), var(--accent-green));
-  border-radius: 2px;
-  transition: width 0.5s ease;
-}
-
-.xp-text {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-secondary);
-}
+/* .menu-xp-display replaced by .player-hub hub-xp-row system */
 
 /* ==================== Queue Status ==================== */
 
@@ -3049,48 +3146,7 @@ html, body, #root {
 
 /* ==================== Coin Display ==================== */
 
-.menu-coin-display {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-family: var(--font-display);
-  font-size: 13px;
-  letter-spacing: 1px;
-  color: #ffd700;
-  background: rgba(255, 215, 0, 0.08);
-  border: 1px solid rgba(255, 215, 0, 0.2);
-  border-radius: 8px;
-  padding: 5px 12px;
-}
-
-.coin-amount {
-  font-weight: 700;
-  text-shadow: 0 0 8px rgba(255, 215, 0, 0.3);
-}
-
-/* ==================== Cosmetics / Shop Button ==================== */
-
-.btn-cosmetics {
-  font-family: var(--font-display);
-  font-size: 11px;
-  letter-spacing: 2px;
-  padding: 8px 18px;
-  border-radius: 8px;
-  border: 1px solid rgba(180, 74, 255, 0.4);
-  background: linear-gradient(135deg, rgba(180, 74, 255, 0.15), rgba(0, 200, 255, 0.1));
-  color: #cc88ff;
-  cursor: pointer;
-  transition: all 0.3s;
-  margin-top: 4px;
-}
-
-.btn-cosmetics:hover {
-  background: linear-gradient(135deg, rgba(180, 74, 255, 0.3), rgba(0, 200, 255, 0.2));
-  border-color: rgba(180, 74, 255, 0.7);
-  color: #e0aaff;
-  box-shadow: 0 0 20px rgba(180, 74, 255, 0.3);
-  transform: translateY(-1px);
-}
+/* old .menu-coin-display and .btn-cosmetics replaced by .player-hub system above */
 
 /* ==================== Cosmetics Shop ==================== */
 
