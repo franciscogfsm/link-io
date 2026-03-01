@@ -3841,19 +3841,44 @@ html, body, #root {
 .box-opening-overlay {
   position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0,0,0,0.85);
-  backdrop-filter: blur(12px);
+  background: rgba(0,0,0,0.92);
+  backdrop-filter: blur(16px);
   z-index: 300;
   display: flex;
   align-items: center;
   justify-content: center;
   animation: fadeIn 0.2s ease-out;
+  overflow: hidden;
 }
+
+/* Rarity-specific overlay color tint on reveal */
+.box-opening-overlay.reveal-rarity-mythic { background: rgba(40,0,15,0.94); }
+.box-opening-overlay.reveal-rarity-legendary { background: rgba(30,20,0,0.94); }
+.box-opening-overlay.reveal-rarity-epic { background: rgba(20,0,40,0.94); }
 
 .box-opening-modal {
   width: 90vw;
-  max-width: 520px;
+  max-width: 540px;
+  position: relative;
+}
+
+.box-opening-modal.spinning {
   animation: slideUp 0.3s ease-out;
+}
+
+.box-opening-modal.reveal {
+  animation: revealScreenShake 0.6s ease-out;
+}
+
+@keyframes revealScreenShake {
+  0% { transform: translate(0, 0) scale(0.9); opacity: 0; }
+  10% { transform: translate(-6px, 4px) scale(1.02); opacity: 1; }
+  20% { transform: translate(5px, -3px) scale(1.01); }
+  30% { transform: translate(-4px, 2px) scale(1.005); }
+  40% { transform: translate(3px, -2px); }
+  50% { transform: translate(-2px, 1px); }
+  60% { transform: translate(1px, -1px); }
+  100% { transform: translate(0, 0) scale(1); }
 }
 
 /* ---- Spinning Reel ---- */
@@ -3868,6 +3893,68 @@ html, body, #root {
   letter-spacing: 4px;
   margin-bottom: 20px;
   text-shadow: 0 0 20px currentColor;
+  animation: spinTitlePulse 1s ease-in-out infinite;
+}
+
+@keyframes spinTitlePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* 3D Crate visualization */
+.box-crate-3d {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 24px;
+}
+
+.crate-3d-box {
+  width: 80px;
+  height: 80px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid;
+  border-radius: 12px;
+  background: rgba(0,0,0,0.5);
+  animation: crateShake 0.15s ease-in-out infinite;
+}
+
+@keyframes crateShake {
+  0%, 100% { transform: translateX(0) rotate(0deg); }
+  25% { transform: translateX(-3px) rotate(-1deg); }
+  75% { transform: translateX(3px) rotate(1deg); }
+}
+
+.crate-3d-face { display: flex; align-items: center; justify-content: center; }
+
+.crate-shake-glow {
+  position: absolute;
+  top: -40px; left: -40px;
+  width: 160px; height: 160px;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: crateGlowPulse 0.8s ease-in-out infinite;
+}
+
+@keyframes crateGlowPulse {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.15); }
+}
+
+.spin-suspense-text {
+  font-family: var(--font-display);
+  font-size: 11px;
+  letter-spacing: 5px;
+  color: rgba(255,255,255,0.4);
+  margin-top: 18px;
+  animation: suspensePulse 0.5s ease-in-out infinite alternate;
+}
+
+@keyframes suspensePulse {
+  0% { opacity: 0.3; letter-spacing: 5px; }
+  100% { opacity: 0.8; letter-spacing: 7px; }
 }
 
 .box-reel-viewport {
@@ -3876,7 +3963,8 @@ html, body, #root {
   overflow: hidden;
   border: 1px solid rgba(180,74,255,0.3);
   border-radius: 12px;
-  background: rgba(0,0,0,0.5);
+  background: rgba(0,0,0,0.6);
+  box-shadow: inset 0 0 30px rgba(0,0,0,0.5), 0 0 20px rgba(180,74,255,0.1);
 }
 
 .box-reel-pointer {
@@ -3887,38 +3975,43 @@ html, body, #root {
   background: #ff2060;
   z-index: 10;
   transform: translateY(-50%);
-  box-shadow: 0 0 12px rgba(255,32,96,0.6);
+  box-shadow: 0 0 16px rgba(255,32,96,0.8), 0 0 40px rgba(255,32,96,0.3);
 }
 
 .box-reel-pointer::before,
 .box-reel-pointer::after {
   content: '';
   position: absolute;
-  top: -5px;
+  top: -6px;
   width: 0; height: 0;
   border-style: solid;
 }
 
 .box-reel-pointer::before {
   left: 0;
-  border-width: 6px 8px 6px 0;
+  border-width: 7px 9px 7px 0;
   border-color: transparent #ff2060 transparent transparent;
+  filter: drop-shadow(0 0 4px rgba(255,32,96,0.6));
 }
 
 .box-reel-pointer::after {
   right: 0;
-  border-width: 6px 0 6px 8px;
+  border-width: 7px 0 7px 9px;
   border-color: transparent transparent transparent #ff2060;
+  filter: drop-shadow(0 0 4px rgba(255,32,96,0.6));
 }
 
 .box-reel-strip {
   display: flex;
   flex-direction: column;
-  animation: reelSpin 2.5s cubic-bezier(0.2, 0.8, 0.3, 1) forwards;
+  animation: reelSpin 3.5s cubic-bezier(0.15, 0.85, 0.20, 1) forwards;
 }
 
 @keyframes reelSpin {
   0% { transform: translateY(0); }
+  70% { transform: translateY(calc(-100% + 200px)); }
+  85% { transform: translateY(calc(-100% + 80px)); }
+  92% { transform: translateY(calc(-100% + 55px)); }
   100% { transform: translateY(calc(-100% + 60px)); }
 }
 
@@ -3930,6 +4023,7 @@ html, body, #root {
   gap: 10px;
   flex-shrink: 0;
   border-bottom: 1px solid rgba(255,255,255,0.04);
+  transition: background 0.15s;
 }
 
 .reel-item-dot {
@@ -3956,15 +4050,23 @@ html, body, #root {
 
 .box-reveal {
   text-align: center;
-  padding: 40px 28px;
+  padding: 50px 28px 40px;
   position: relative;
-  animation: revealPop 0.5s ease-out;
+  overflow: visible;
 }
 
-@keyframes revealPop {
-  0% { transform: scale(0.7); opacity: 0; }
-  60% { transform: scale(1.05); }
-  100% { transform: scale(1); opacity: 1; }
+/* Multi-layer glow system */
+.reveal-glow-outer {
+  position: absolute;
+  top: -100%; left: -100%;
+  width: 300%; height: 300%;
+  pointer-events: none;
+  animation: revealGlowOuter 3s ease-in-out infinite;
+}
+
+@keyframes revealGlowOuter {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.1); }
 }
 
 .reveal-glow {
@@ -3976,16 +4078,97 @@ html, body, #root {
 }
 
 @keyframes revealGlowPulse {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 0.8; }
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50% { opacity: 0.9; transform: scale(1.05); }
 }
 
-.reveal-rarity {
+.reveal-flash {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 0; height: 0;
+  border-radius: 50%;
+  border: 3px solid;
+  pointer-events: none;
+  animation: revealFlashBurst 0.8s ease-out forwards;
+}
+
+@keyframes revealFlashBurst {
+  0% { width: 0; height: 0; opacity: 1; top: 50%; left: 50%; }
+  100% { width: 600px; height: 600px; opacity: 0; top: calc(50% - 300px); left: calc(50% - 300px); }
+}
+
+/* Rarity banner with dramatic entrance */
+.reveal-rarity-banner {
   font-family: var(--font-display);
-  font-size: 14px;
-  letter-spacing: 4px;
-  margin-bottom: 8px;
-  text-shadow: 0 0 20px currentColor;
+  font-size: 13px;
+  letter-spacing: 6px;
+  margin-bottom: 16px;
+  position: relative;
+  z-index: 2;
+  animation: rarityBannerIn 0.8s ease-out;
+}
+
+@keyframes rarityBannerIn {
+  0% { letter-spacing: 30px; opacity: 0; transform: scaleX(3); }
+  60% { opacity: 1; }
+  100% { letter-spacing: 6px; transform: scaleX(1); }
+}
+
+/* Item showcase with animated rings */
+.reveal-item-showcase {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  margin: 0 auto 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.reveal-ring {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  border: 2px solid;
+  border-radius: 50%;
+  opacity: 0.4;
+  animation: revealRingSpin 3s linear infinite;
+}
+
+.reveal-ring-2 {
+  top: -10px; left: -10px;
+  width: calc(100% + 20px);
+  height: calc(100% + 20px);
+  border-style: dashed;
+  opacity: 0.2;
+  animation: revealRingSpin 5s linear infinite reverse;
+}
+
+@keyframes revealRingSpin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.reveal-item-icon {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: revealItemFloat 2s ease-in-out infinite;
+}
+
+@keyframes revealItemFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+.reveal-item-dot-big {
+  display: block;
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  box-shadow: 0 0 20px currentColor, 0 0 40px currentColor;
 }
 
 .reveal-name {
@@ -3995,6 +4178,14 @@ html, body, #root {
   color: rgba(255,255,255,0.95);
   text-shadow: 0 0 20px rgba(255,255,255,0.2);
   margin-bottom: 6px;
+  position: relative;
+  z-index: 2;
+  animation: revealNameIn 0.6s ease-out 0.2s both;
+}
+
+@keyframes revealNameIn {
+  0% { transform: translateY(20px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
 }
 
 .reveal-type {
@@ -4003,6 +4194,7 @@ html, body, #root {
   letter-spacing: 3px;
   color: rgba(255,255,255,0.35);
   margin-bottom: 12px;
+  animation: revealNameIn 0.6s ease-out 0.3s both;
 }
 
 .reveal-desc {
@@ -4010,6 +4202,48 @@ html, body, #root {
   font-size: 12px;
   color: rgba(255,255,255,0.5);
   margin-bottom: 16px;
+  animation: revealNameIn 0.6s ease-out 0.4s both;
+}
+
+/* Pet bonus display on reveal */
+.reveal-pet-bonuses {
+  margin-bottom: 18px;
+  animation: revealNameIn 0.6s ease-out 0.5s both;
+}
+
+.reveal-bonus-title {
+  font-family: var(--font-display);
+  font-size: 9px;
+  letter-spacing: 3px;
+  color: rgba(57,255,20,0.7);
+  margin-bottom: 8px;
+}
+
+.reveal-bonus-tag {
+  display: inline-block;
+  font-family: var(--font-display);
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: #39ff14;
+  background: rgba(57,255,20,0.1);
+  border: 1px solid rgba(57,255,20,0.3);
+  border-radius: 20px;
+  padding: 4px 12px;
+  margin: 3px 4px;
+  text-shadow: 0 0 8px rgba(57,255,20,0.4);
+  animation: bonusTagPop 0.4s ease-out both;
+}
+
+.reveal-bonus-tag:nth-child(2) { animation-delay: 0.6s; }
+.reveal-bonus-tag:nth-child(3) { animation-delay: 0.7s; }
+.reveal-bonus-tag:nth-child(4) { animation-delay: 0.8s; }
+.reveal-bonus-tag:nth-child(5) { animation-delay: 0.9s; }
+.reveal-bonus-tag:nth-child(6) { animation-delay: 1.0s; }
+
+@keyframes bonusTagPop {
+  0% { transform: scale(0) translateY(10px); opacity: 0; }
+  70% { transform: scale(1.15) translateY(-2px); }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
 }
 
 .reveal-duplicate {
@@ -4023,12 +4257,14 @@ html, body, #root {
   padding: 6px 14px;
   margin-bottom: 16px;
   display: inline-block;
+  animation: revealNameIn 0.6s ease-out 0.5s both;
 }
 
 .reveal-actions {
   display: flex;
   gap: 10px;
   justify-content: center;
+  animation: revealNameIn 0.6s ease-out 0.6s both;
 }
 
 .btn-equip {
@@ -4044,9 +4280,19 @@ html, body, #root {
   transition: all 0.2s !important;
 }
 
+.btn-equip-glow {
+  animation: equipGlowPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes equipGlowPulse {
+  0%, 100% { box-shadow: 0 0 10px rgba(57,255,20,0.2); }
+  50% { box-shadow: 0 0 25px rgba(57,255,20,0.5), 0 0 50px rgba(57,255,20,0.15); }
+}
+
 .btn-equip:hover {
   background: rgba(57,255,20,0.25) !important;
-  box-shadow: 0 0 15px rgba(57,255,20,0.2) !important;
+  box-shadow: 0 0 20px rgba(57,255,20,0.3) !important;
+  transform: scale(1.05);
 }
 
 .btn-reveal-close {
@@ -4068,24 +4314,164 @@ html, body, #root {
   color: rgba(255,255,255,0.9) !important;
 }
 
-/* Mythic reveal special effects */
+/* ---- Particle Explosion System ---- */
+
+.reveal-particles-container {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 0; height: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.reveal-particle {
+  position: absolute;
+  width: var(--size);
+  height: var(--size);
+  border-radius: 50%;
+  background: var(--color);
+  box-shadow: 0 0 6px var(--color), 0 0 12px var(--color);
+  animation: particleExplode 1.2s ease-out var(--delay) forwards;
+  opacity: 0;
+}
+
+@keyframes particleExplode {
+  0% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform:
+      translate(
+        calc(cos(var(--angle)) * var(--dist)),
+        calc(sin(var(--angle)) * var(--dist))
+      )
+      scale(0);
+  }
+}
+
+/* Fallback particle animation for browsers without trig functions */
+.reveal-particle.particle-0 { animation-name: particleExplode0; }
+.reveal-particle.particle-1 { animation-name: particleExplode1; }
+.reveal-particle.particle-2 { animation-name: particleExplode2; }
+.reveal-particle.particle-3 { animation-name: particleExplode3; }
+.reveal-particle.particle-4 { animation-name: particleExplode4; }
+.reveal-particle.particle-5 { animation-name: particleExplode5; }
+
+@keyframes particleExplode0 {
+  0% { opacity: 1; transform: translate(0, 0) scale(1); }
+  100% { opacity: 0; transform: translate(120px, -80px) scale(0); }
+}
+@keyframes particleExplode1 {
+  0% { opacity: 1; transform: translate(0, 0) scale(1); }
+  100% { opacity: 0; transform: translate(-100px, -120px) scale(0); }
+}
+@keyframes particleExplode2 {
+  0% { opacity: 1; transform: translate(0, 0) scale(1); }
+  100% { opacity: 0; transform: translate(140px, 60px) scale(0); }
+}
+@keyframes particleExplode3 {
+  0% { opacity: 1; transform: translate(0, 0) scale(1); }
+  100% { opacity: 0; transform: translate(-130px, 90px) scale(0); }
+}
+@keyframes particleExplode4 {
+  0% { opacity: 1; transform: translate(0, 0) scale(1); }
+  100% { opacity: 0; transform: translate(50px, -150px) scale(0); }
+}
+@keyframes particleExplode5 {
+  0% { opacity: 1; transform: translate(0, 0) scale(1); }
+  100% { opacity: 0; transform: translate(-60px, 130px) scale(0); }
+}
+
+/* ---- Rarity-Specific Reveal Effects ---- */
+
+/* Mythic reveal: multi-pulse glow + red/pink text shimmer */
 .rarity-reveal-mythic .reveal-name {
-  background: linear-gradient(90deg, #ff2060, #ff80a0, #ff2060);
-  background-size: 200% 100%;
+  background: linear-gradient(90deg, #ff2060, #ff80a0, #ff2060, #ff4080);
+  background-size: 300% 100%;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   animation: mythicTextShift 1.5s ease-in-out infinite;
+  filter: drop-shadow(0 0 10px rgba(255,32,96,0.5));
 }
 
+.rarity-reveal-mythic .reveal-ring {
+  border-width: 3px;
+  box-shadow: 0 0 15px rgba(255,32,96,0.4);
+}
+
+.rarity-reveal-mythic::before {
+  content: '';
+  position: absolute;
+  top: -20px; left: -20px; right: -20px; bottom: -20px;
+  border: 2px solid rgba(255,32,96,0.15);
+  border-radius: 16px;
+  animation: mythicBorderPulse 2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes mythicBorderPulse {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.02); }
+}
+
+/* Legendary reveal: golden shimmer + sparkle */
 .rarity-reveal-legendary .reveal-name {
-  background: linear-gradient(90deg, #ffd700, #fff0aa, #ffd700);
-  background-size: 200% 100%;
+  background: linear-gradient(90deg, #ffd700, #fff0aa, #ffd700, #ffe066);
+  background-size: 300% 100%;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   animation: mythicTextShift 2s ease-in-out infinite;
+  filter: drop-shadow(0 0 8px rgba(255,215,0,0.4));
+}
+
+.rarity-reveal-legendary .reveal-ring {
+  border-color: #ffd700 !important;
+  box-shadow: 0 0 12px rgba(255,215,0,0.3);
+}
+
+/* Epic reveal: purple glow */
+.rarity-reveal-epic .reveal-name {
+  text-shadow: 0 0 20px rgba(180,74,255,0.6), 0 0 40px rgba(180,74,255,0.2);
 }
 
 @keyframes mythicTextShift {
   0%, 100% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
+}
+
+/* ---- Pet Bonus Tags (Collection Grid) ---- */
+
+.pet-bonus-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  justify-content: center;
+  margin-top: 4px;
+}
+
+.pet-bonus-tag {
+  font-family: var(--font-display);
+  font-size: 7px;
+  letter-spacing: 0.5px;
+  color: #39ff14;
+  background: rgba(57,255,20,0.08);
+  border: 1px solid rgba(57,255,20,0.2);
+  border-radius: 10px;
+  padding: 1px 6px;
+  white-space: nowrap;
+  text-shadow: 0 0 6px rgba(57,255,20,0.3);
+}
+
+.pet-card-bonus {
+  border-color: rgba(57,255,20,0.2) !important;
+}
+
+.pet-card-bonus:hover {
+  border-color: rgba(57,255,20,0.4) !important;
+  box-shadow: 0 0 12px rgba(57,255,20,0.15) !important;
 }

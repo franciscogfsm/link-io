@@ -181,13 +181,15 @@ export default function App() {
         setScreen('game');
       });
 
-      // Emit join event
+      // Emit join event — include equipped pet for server-side bonuses
+      const progData = JSON.parse(localStorage.getItem('linkio-progression') || '{}');
+      const equippedPet = progData.equippedPet || 'pet_none';
       if (action === 'create') {
-        socket.emit('player:createRoom', { name, gameMode });
+        socket.emit('player:createRoom', { name, gameMode, equippedPet });
       } else if (action === 'join' && code) {
-        socket.emit('player:join', { name, roomCode: code });
+        socket.emit('player:join', { name, roomCode: code, equippedPet });
       } else {
-        socket.emit('player:join', { name, gameMode });
+        socket.emit('player:join', { name, gameMode, equippedPet });
       }
     };
 

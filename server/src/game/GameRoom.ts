@@ -19,18 +19,18 @@ function convergenceMultiplier(linkCount: number): number {
 }
 const UPGRADE_MAX_TIER = 3;
 const UPGRADE_COSTS: Record<UpgradeType, number[]> = {
-  fortify:    [120, 280, 500],
+  fortify:    [100, 260, 480],
   regen:      [100, 240, 450],
   thornAura:  [150, 350, 600],
   power:      [110, 260, 480],
   siphon:     [110, 260, 480],
-  corrosion:  [180, 400, 700],
+  corrosion:  [150, 350, 620],
   flow:       [100, 250, 460],
   efficiency: [80,  200, 380],
   magnet:     [250, 500, 800],
   reach:      [100, 240, 440],
   toughLinks: [110, 260, 480],
-  speed:      [120, 280, 500],
+  speed:      [90,  250, 470],
 };
 const DEFAULT_UPGRADES: PlayerUpgrades = {
   fortify: 0, regen: 0, thornAura: 0,
@@ -38,6 +38,28 @@ const DEFAULT_UPGRADES: PlayerUpgrades = {
   flow: 0, efficiency: 0, magnet: 0,
   reach: 0, toughLinks: 0, speed: 0,
 };
+
+// Pet bonuses — inlined to avoid ESM issues on Render
+interface PetBonusData { speed?: number; energy?: number; damage?: number; defense?: number; cooldown?: number; linkHp?: number; reach?: number; regen?: number; siphon?: number; magnet?: number }
+const PET_BONUSES: Record<string, PetBonusData> = {
+  pet_none: {},
+  pet_orb: { energy: 0.04 },
+  pet_cube: { linkHp: 0.06 },
+  pet_drone: { speed: 0.05 },
+  pet_skull: { damage: 0.07 },
+  pet_star: { energy: 0.06, regen: 0.04 },
+  pet_dragon: { damage: 0.08, speed: 0.04 },
+  pet_eye: { reach: 0.12, cooldown: 0.03 },
+  pet_blackhole: { magnet: 0.15, energy: 0.06 },
+  pet_crown: { damage: 0.08, defense: 0.06, energy: 0.04 },
+  pet_ghost: { cooldown: 0.08, speed: 0.03 },
+  pet_butterfly: { speed: 0.07, energy: 0.05 },
+  pet_serpent: { siphon: 0.12, damage: 0.05 },
+  pet_phoenix_bird: { regen: 0.10, defense: 0.06, damage: 0.04 },
+  pet_void_entity: { damage: 0.10, speed: 0.07, cooldown: 0.06, energy: 0.05 },
+};
+function getPetBonus(petId: string): PetBonusData { return PET_BONUSES[petId] || {}; }
+
 import { PhysicsEngine } from './PhysicsEngine.js';
 import { NetworkManager } from './NetworkManager.js';
 import { NodeGenerator } from './NodeGenerator.js';
@@ -197,7 +219,7 @@ export class GameRoom {
   get gamePhase(): string { return this.state.gamePhase; }
   get isFull(): boolean { return this.state.players.length >= MAX_PLAYERS; }
 
-  addPlayer(socket: Socket<ClientToServerEvents, ServerToClientEvents>, name: string, forcedTeam?: number): Player | null {
+  addPlayer(socket: Socket<ClientToServerEvents, ServerToClientEvents>, name: string, forcedTeam?: number, equippedPet?: string): Player | null {
     if (this.isFull || this.state.gamePhase === 'ended') return null;
 
     // Assign persistent color
@@ -258,6 +280,7 @@ export class GameRoom {
       bestClickStreak: 0,
       totalClicks: 0,
       shieldActive: false,
+      equippedPet: equippedPet || 'pet_none',
     };
 
     this.state.players.push(player);
@@ -501,29 +524,25 @@ export class GameRoom {
     }
 
     player.energy -= cost;
-    player.abilityCooldowns[ability] = ABILITY_COOLDOWNS[ability];
+    // Pet cooldown reduction bonus
+    const petCdReduction = 1 - (getPetBonus(player.equippedPet).cooldown || 0);
+    player.abilityCooldowns[ability] = ABILITY_COOLDOWNS[ability] * petCdReduction;
 
     const targetNodes: string[] = [];
 
     switch (ability) {
       case 'surge': {
-        // Hit all enemy links touching OR within-1-hop of any owned node
+        // Hit all enemy links directly touching any owned node (1-hop only)
+        // Balanced: powerful burst but requires front-line positioning
         const ownedNodeIds = new Set(
           this.state.nodes.filter((n: GameNode) => n.owner === player.id).map((n: GameNode) => n.id)
         );
-        // Build second-hop set: nodes reachable from owned nodes via own links
-        const twoHopIds = new Set<string>(ownedNodeIds);
-        for (const link of this.state.links) {
-          if (link.owner === player.id) {
-            if (ownedNodeIds.has(link.fromNodeId)) twoHopIds.add(link.toNodeId);
-            if (ownedNodeIds.has(link.toNodeId)) twoHopIds.add(link.fromNodeId);
-          }
-        }
         for (const link of this.state.links) {
           if (link.owner !== player.id && !link.shielded) {
-            const touches = twoHopIds.has(link.fromNodeId) || twoHopIds.has(link.toNodeId);
+            const touches = ownedNodeIds.has(link.fromNodeId) || ownedNodeIds.has(link.toNodeId);
             if (touches) {
-              link.health -= 50; // increased from 35
+              const petDmg = 1 + (getPetBonus(player.equippedPet).damage || 0);
+              link.health -= 55 * petDmg; // pet bonus amplifies surge
               targetNodes.push(link.fromNodeId, link.toNodeId);
             }
           }
@@ -548,7 +567,7 @@ export class GameRoom {
               link.shielded = false;
             }
           }
-        }, 8000);
+        }, 5500); // 5.5s duration (was 8s) — nerf uptime, keep strategic value
         console.log(`[LINK.IO] 🛡️ ${player.name} activated SHIELD!`);
         break;
       }
@@ -559,7 +578,7 @@ export class GameRoom {
         );
         if (!coreNode) break;
 
-        const empRadius = 650; // increased from 500
+        const empRadius = 520; // balanced: was 650 (too wide), focused burst radius
         for (const link of this.state.links) {
           if (link.owner === player.id) continue;
           const fromNode = this.state.nodes.find((n: GameNode) => n.id === link.fromNodeId);
@@ -574,12 +593,13 @@ export class GameRoom {
 
           if (dist < empRadius) {
             if (!link.shielded) {
-              link.health -= 70; // increased from 50
+              const petDmg = 1 + (getPetBonus(player.equippedPet).damage || 0);
+              link.health -= 65 * petDmg; // pet bonus amplifies EMP
               targetNodes.push(link.fromNodeId, link.toNodeId);
             }
           }
         }
-        // Also drain energy from enemies caught in blast
+        // Also drain energy from enemies caught in blast (nerfed: 10 from 20)
         for (const other of this.state.players) {
           if (other.id === player.id || !other.alive) continue;
           const otherCore = this.state.nodes.find((n: GameNode) => n.id === other.coreNodeId);
@@ -587,7 +607,7 @@ export class GameRoom {
           const dx = otherCore.position.x - coreNode.position.x;
           const dy = otherCore.position.y - coreNode.position.y;
           if (Math.sqrt(dx * dx + dy * dy) < empRadius) {
-            other.energy = Math.max(0, other.energy - 20); // zap enemy energy
+            other.energy = Math.max(0, other.energy - 10); // zap enemy energy
           }
         }
         this.io.to(this.id).emit('game:screenShake', { intensity: 18, duration: 0.7 });
@@ -621,10 +641,12 @@ export class GameRoom {
         targetNode.isCore = true;
         targetNode.radius = 18;
         player.coreNodeId = targetNode.id;
+        // Post-warp invulnerability window — makes Warp a real escape/repositioning tool
+        player.invulnTimer = Math.max(player.invulnTimer, 2.5);
         targetNodes.push(targetNode.id);
         if (oldCore) targetNodes.push(oldCore.id);
         this.io.to(this.id).emit('game:screenShake', { intensity: 5, duration: 0.3 });
-        console.log(`[LINK.IO] 🌀 ${player.name} WARPED to node ${targetNode.id}`);
+        console.log(`[LINK.IO] WARP ${player.name} teleported to node ${targetNode.id} (+2.5s invuln)`);
         break;
       }
     }
@@ -667,8 +689,9 @@ export class GameRoom {
         }
       }
 
-      // Apply reach upgrade to link distance
-      const reachBonus = 1 + [0, 0.15, 0.30, 0.50][player.upgrades.reach];
+      // Apply reach upgrade to link distance (+ pet reach bonus)
+      const petReach = 1 + (getPetBonus(player.equippedPet).reach || 0);
+      const reachBonus = (1 + [0, 0.15, 0.30, 0.50][player.upgrades.reach]) * petReach;
 
       const link = this.network.createLink(
         data.fromNodeId, data.toNodeId, player.id,
@@ -677,8 +700,9 @@ export class GameRoom {
       );
 
       if (link) {
-        // Apply toughLinks upgrade — boost link HP
-        const hpBonus = 1 + [0, 0.30, 0.60, 1.0][player.upgrades.toughLinks];
+        // Apply toughLinks upgrade — boost link HP (+ pet linkHp bonus)
+        const petLinkHp = 1 + (getPetBonus(player.equippedPet).linkHp || 0);
+        const hpBonus = (1 + [0, 0.30, 0.60, 1.0][player.upgrades.toughLinks]) * petLinkHp;
         link.maxHealth *= hpBonus;
         link.health *= hpBonus;
 
@@ -1079,19 +1103,21 @@ export class GameRoom {
         }
       }
 
-      // Regen upgrade — boost health regen
-      if (player.alive && player.upgrades.regen > 0) {
+      // Regen upgrade — boost health regen (+ pet regen bonus)
+      if (player.alive && (player.upgrades.regen > 0 || (getPetBonus(player.equippedPet).regen || 0) > 0)) {
         const regenBonus = [0, 0.5, 1.0, 2.0][player.upgrades.regen];
-        // Only regen if not actively being damaged (checked later, but apply passive bonus here)
-        if (player.health < player.maxHealth) {
-          player.health = Math.min(player.maxHealth, player.health + regenBonus * deltaTime);
+        const petRegen = 1 + (getPetBonus(player.equippedPet).regen || 0);
+        const totalRegen = regenBonus * petRegen;
+        if (player.health < player.maxHealth && totalRegen > 0) {
+          player.health = Math.min(player.maxHealth, player.health + totalRegen * deltaTime);
         }
       }
 
       // Magnet upgrade — auto-claim nearby unowned nodes on cooldown
       if (player.alive && player.upgrades.magnet > 0) {
         // Tier 1: 180px, 1.0s CD  | Tier 2: 270px, 0.65s CD  | Tier 3: 360px, 0.4s CD
-        const magnetRange = [0, 180, 270, 360][player.upgrades.magnet];
+        const petMagnet = 1 + (getPetBonus(player.equippedPet).magnet || 0);
+        const magnetRange = [0, 180, 270, 360][player.upgrades.magnet] * petMagnet;
         const magnetRangeSq = magnetRange * magnetRange;
         const magnetCooldown = [0, 1.0, 0.65, 0.4][player.upgrades.magnet];
         // Tier 3 grabs up to 2 nodes per interval
@@ -1170,7 +1196,8 @@ export class GameRoom {
       const massFactor = Math.max(0.15, 1 - player.nodeCount * MOVE_MASS_PENALTY - player.linkCount * MOVE_LINK_PENALTY);
       const agilityBonus = player.linkCount === 0 ? MOVE_AGILITY_BONUS : 1;
       const speedBonus = 1 + [0, 0.20, 0.40, 0.70][player.upgrades.speed];
-      const maxSpeed = MOVE_BASE_SPEED * massFactor * speedBonus * agilityBonus;
+      const petSpeed = 1 + (getPetBonus(player.equippedPet).speed || 0);
+      const maxSpeed = MOVE_BASE_SPEED * massFactor * speedBonus * petSpeed * agilityBonus;
 
       if (input && (input.x !== 0 || input.y !== 0) && player.energy > 1) {
         // Accelerate toward input direction
@@ -1378,15 +1405,17 @@ export class GameRoom {
         const attacker = playerMap.get(link.owner);
         if (!attacker || !attacker.alive) continue;
 
-        // Network power scaling: attacker's damage scales with their network
+        // Network power scaling: attacker's damage scales with their network + pet damage bonus
         const attackerPowerTier = [0, 0.25, 0.50, 0.80][attacker.upgrades.power];
-        const networkMultiplier = 1 + (attacker.nodeCount - 1) * 0.08 + attackerPowerTier;
+        const petDmgBonus = 1 + (getPetBonus(attacker.equippedPet).damage || 0);
+        const networkMultiplier = (1 + (attacker.nodeCount - 1) * 0.08 + attackerPowerTier) * petDmgBonus;
         // CONVERGENCE: more links from this attacker touching this core = more damage
         const coreAttackKey = `${link.owner}:${targetCore.id}`;
         const linksOnCore = coreAttackCounts.get(coreAttackKey) || 1;
         const converge = convergenceMultiplier(linksOnCore);
-        // Defender's fortify upgrade reduces damage
-        const fortifyReduction = 1 - [0, 0.20, 0.35, 0.50][coreOwner.upgrades.fortify];
+        // Defender's fortify upgrade reduces damage (+ pet defense bonus)
+        const petDefBonus = getPetBonus(coreOwner.equippedPet).defense || 0;
+        const fortifyReduction = (1 - [0, 0.20, 0.35, 0.50][coreOwner.upgrades.fortify]) * (1 - petDefBonus);
         const damage = CORE_DAMAGE_PER_SECOND * deltaTime * networkMultiplier * converge * fortifyReduction;
         coreOwner.health -= damage;
         coreOwner.lastDamagedBy = attacker.id;

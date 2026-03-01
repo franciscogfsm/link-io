@@ -196,6 +196,7 @@ export interface Player {
   bestClickStreak: number;      // highest click streak this game
   totalClicks: number;          // total clicks this game
   shieldActive: boolean;        // GUARD ability active — full protection
+  equippedPet: string;          // pet id — gives gameplay bonuses
 }
 
 export interface KillFeedEntry {
@@ -458,6 +459,61 @@ export const COIN_REWARDS = {
   FIRST_GAME_OF_DAY: 25,
 };
 
+// ============================================================
+// PET BONUSES — each pet gives REAL gameplay advantages
+// Percentages stack with upgrades. Rarer pets = stronger bonuses.
+// ============================================================
+export interface PetBonus {
+  speed?: number;      // +% movement speed
+  energy?: number;     // +% energy generation
+  damage?: number;     // +% link/ability damage
+  defense?: number;    // +% damage reduction
+  cooldown?: number;   // -% ability cooldowns
+  linkHp?: number;     // +% link health
+  reach?: number;      // +% link range
+  regen?: number;      // +% health regen
+  siphon?: number;     // +% siphon rate
+  magnet?: number;     // +% magnet range
+}
+
+export const PET_BONUSES: Record<string, PetBonus> = {
+  pet_none:          {},
+  // Level-unlocked pets
+  pet_orb:           { energy: 0.04 },                                 // +4% energy gen
+  pet_cube:          { linkHp: 0.06 },                                 // +6% link HP
+  pet_drone:         { speed: 0.05 },                                  // +5% speed
+  pet_skull:         { damage: 0.07 },                                 // +7% damage
+  pet_star:          { energy: 0.06, regen: 0.04 },                    // +6% energy, +4% regen
+  pet_dragon:        { damage: 0.08, speed: 0.04 },                    // +8% dmg, +4% speed
+  pet_eye:           { reach: 0.12, cooldown: 0.03 },                  // +12% reach, -3% CDs
+  pet_blackhole:     { magnet: 0.15, energy: 0.06 },                   // +15% magnet, +6% energy
+  pet_crown:         { damage: 0.08, defense: 0.06, energy: 0.04 },    // +8% dmg, +6% def, +4% energy
+  // Box-exclusive pets
+  pet_ghost:         { cooldown: 0.08, speed: 0.03 },                  // -8% CDs, +3% speed
+  pet_butterfly:     { speed: 0.07, energy: 0.05 },                    // +7% speed, +5% energy
+  pet_serpent:       { siphon: 0.12, damage: 0.05 },                   // +12% siphon, +5% dmg
+  pet_phoenix_bird:  { regen: 0.10, defense: 0.06, damage: 0.04 },     // +10% regen, +6% def, +4% dmg
+  pet_void_entity:   { damage: 0.10, speed: 0.07, cooldown: 0.06, energy: 0.05 }, // MYTHIC: all stats
+};
+
+// Helper to format pet bonus as readable strings
+export function getPetBonusLabels(petId: string): string[] {
+  const bonus = PET_BONUSES[petId];
+  if (!bonus) return [];
+  const labels: string[] = [];
+  if (bonus.speed) labels.push(`+${Math.round(bonus.speed * 100)}% Speed`);
+  if (bonus.energy) labels.push(`+${Math.round(bonus.energy * 100)}% Energy`);
+  if (bonus.damage) labels.push(`+${Math.round(bonus.damage * 100)}% Damage`);
+  if (bonus.defense) labels.push(`+${Math.round(bonus.defense * 100)}% Defense`);
+  if (bonus.cooldown) labels.push(`-${Math.round(bonus.cooldown * 100)}% Cooldowns`);
+  if (bonus.linkHp) labels.push(`+${Math.round(bonus.linkHp * 100)}% Link HP`);
+  if (bonus.reach) labels.push(`+${Math.round(bonus.reach * 100)}% Reach`);
+  if (bonus.regen) labels.push(`+${Math.round(bonus.regen * 100)}% Regen`);
+  if (bonus.siphon) labels.push(`+${Math.round(bonus.siphon * 100)}% Siphon`);
+  if (bonus.magnet) labels.push(`+${Math.round(bonus.magnet * 100)}% Magnet`);
+  return labels;
+}
+
 export const ALL_COSMETICS: CosmeticItem[] = [
   // ======== SKINS (core node appearance) ========
   { id: 'skin_default',      name: 'Standard',          type: 'skin', description: 'Default core look',                      rarity: 'common',    source: 'level', levelRequired: 1 },
@@ -479,23 +535,23 @@ export const ALL_COSMETICS: CosmeticItem[] = [
   { id: 'skin_chromatic',    name: 'Chromatic',         type: 'skin', description: 'Shifts through all colors',              rarity: 'mythic',    source: 'box',   levelRequired: 0 },
   { id: 'skin_divine',       name: 'Divine Radiance',   type: 'skin', description: 'Blinding white-gold energy',             rarity: 'mythic',    source: 'box',   levelRequired: 0 },
 
-  // ======== PETS (orbit core) ========
-  { id: 'pet_none',          name: 'No Pet',            type: 'pet',  description: 'No pet equipped',                        rarity: 'common',    source: 'level', levelRequired: 1 },
-  { id: 'pet_orb',           name: 'Spark Orb',         type: 'pet',  description: 'Tiny glowing orb follows you',           rarity: 'common',    source: 'level', levelRequired: 4 },
-  { id: 'pet_cube',          name: 'Holo Cube',         type: 'pet',  description: 'Rotating holographic cube',              rarity: 'uncommon',  source: 'level', levelRequired: 7 },
-  { id: 'pet_drone',         name: 'Mini Drone',        type: 'pet',  description: 'Buzzing little drone buddy',             rarity: 'uncommon',  source: 'level', levelRequired: 10 },
-  { id: 'pet_skull',         name: 'Ghost Skull',       type: 'pet',  description: 'Spectral skull orbits you',              rarity: 'rare',      source: 'level', levelRequired: 14 },
-  { id: 'pet_star',          name: 'Star Fragment',     type: 'pet',  description: 'Twinkling star shard',                   rarity: 'rare',      source: 'level', levelRequired: 18 },
-  { id: 'pet_dragon',        name: 'Pixel Dragon',      type: 'pet',  description: 'Tiny dragon circles your core',          rarity: 'epic',      source: 'level', levelRequired: 22 },
-  { id: 'pet_eye',           name: 'All-Seeing Eye',    type: 'pet',  description: 'Watching... always watching',            rarity: 'epic',      source: 'level', levelRequired: 28 },
-  { id: 'pet_blackhole',     name: 'Black Hole',        type: 'pet',  description: 'Miniature singularity',                  rarity: 'legendary', source: 'level', levelRequired: 35 },
-  { id: 'pet_crown',         name: 'Royal Crown',       type: 'pet',  description: 'Floating golden crown',                  rarity: 'legendary', source: 'level', levelRequired: 45 },
+  // ======== PETS (orbit core) — EACH PET GIVES REAL STAT BONUSES ========
+  { id: 'pet_none',          name: 'No Pet',            type: 'pet',  description: 'No pet equipped',                                       rarity: 'common',    source: 'level', levelRequired: 1 },
+  { id: 'pet_orb',           name: 'Spark Orb',         type: 'pet',  description: '+4% Energy Gen -- Tiny glowing orb',                    rarity: 'common',    source: 'level', levelRequired: 4 },
+  { id: 'pet_cube',          name: 'Holo Cube',         type: 'pet',  description: '+6% Link HP -- Rotating holographic cube',              rarity: 'uncommon',  source: 'level', levelRequired: 7 },
+  { id: 'pet_drone',         name: 'Mini Drone',        type: 'pet',  description: '+5% Speed -- Buzzing little drone buddy',               rarity: 'uncommon',  source: 'level', levelRequired: 10 },
+  { id: 'pet_skull',         name: 'Ghost Skull',       type: 'pet',  description: '+7% Damage -- Spectral skull orbits you',               rarity: 'rare',      source: 'level', levelRequired: 14 },
+  { id: 'pet_star',          name: 'Star Fragment',     type: 'pet',  description: '+6% Energy, +4% Regen -- Twinkling star shard',         rarity: 'rare',      source: 'level', levelRequired: 18 },
+  { id: 'pet_dragon',        name: 'Pixel Dragon',      type: 'pet',  description: '+8% Damage, +4% Speed -- Tiny dragon',                  rarity: 'epic',      source: 'level', levelRequired: 22 },
+  { id: 'pet_eye',           name: 'All-Seeing Eye',    type: 'pet',  description: '+12% Reach, -3% Cooldowns -- Watching...',              rarity: 'epic',      source: 'level', levelRequired: 28 },
+  { id: 'pet_blackhole',     name: 'Black Hole',        type: 'pet',  description: '+15% Magnet, +6% Energy -- Miniature singularity',      rarity: 'legendary', source: 'level', levelRequired: 35 },
+  { id: 'pet_crown',         name: 'Royal Crown',       type: 'pet',  description: '+8% Dmg, +6% Def, +4% Energy -- Floating golden crown', rarity: 'legendary', source: 'level', levelRequired: 45 },
   // Box-exclusive pets
-  { id: 'pet_ghost',         name: 'Phantom',           type: 'pet',  description: 'Flickering ghost companion',             rarity: 'rare',      source: 'box',   levelRequired: 0 },
-  { id: 'pet_butterfly',     name: 'Neon Butterfly',    type: 'pet',  description: 'Electric butterfly orbits you',          rarity: 'epic',      source: 'box',   levelRequired: 0 },
-  { id: 'pet_serpent',       name: 'Cyber Serpent',      type: 'pet',  description: 'Coiling digital snake',                  rarity: 'epic',      source: 'box',   levelRequired: 0 },
-  { id: 'pet_phoenix_bird',  name: 'Phoenix Hatchling', type: 'pet',  description: 'Baby phoenix in flames',                 rarity: 'legendary', source: 'box',   levelRequired: 0 },
-  { id: 'pet_void_entity',   name: 'Void Entity',       type: 'pet',  description: 'Shifting dark matter creature',          rarity: 'mythic',    source: 'box',   levelRequired: 0 },
+  { id: 'pet_ghost',         name: 'Phantom',           type: 'pet',  description: '-8% Cooldowns, +3% Speed -- Flickering ghost',          rarity: 'rare',      source: 'box',   levelRequired: 0 },
+  { id: 'pet_butterfly',     name: 'Neon Butterfly',    type: 'pet',  description: '+7% Speed, +5% Energy -- Electric butterfly',           rarity: 'epic',      source: 'box',   levelRequired: 0 },
+  { id: 'pet_serpent',       name: 'Cyber Serpent',      type: 'pet',  description: '+12% Siphon, +5% Dmg -- Coiling digital snake',         rarity: 'epic',      source: 'box',   levelRequired: 0 },
+  { id: 'pet_phoenix_bird',  name: 'Phoenix Hatchling', type: 'pet',  description: '+10% Regen, +6% Def, +4% Dmg -- Baby phoenix',          rarity: 'legendary', source: 'box',   levelRequired: 0 },
+  { id: 'pet_void_entity',   name: 'Void Entity',       type: 'pet',  description: '+10% Dmg, +7% Speed, -6% CDs, +5% Energy -- MYTHIC',    rarity: 'mythic',    source: 'box',   levelRequired: 0 },
 
   // ======== TRAILS (movement particles) ========
   { id: 'trail_none',        name: 'No Trail',          type: 'trail', description: 'No trail effect',                       rarity: 'common',    source: 'level', levelRequired: 1 },
@@ -548,8 +604,8 @@ export const ALL_COSMETICS: CosmeticItem[] = [
 // ============================================================
 
 export interface ClientToServerEvents {
-  'player:join': (data: { name: string; roomCode?: string; gameMode?: GameMode }) => void;
-  'player:createRoom': (data: { name: string; gameMode?: GameMode }) => void;
+  'player:join': (data: { name: string; roomCode?: string; gameMode?: GameMode; equippedPet?: string }) => void;
+  'player:createRoom': (data: { name: string; gameMode?: GameMode; equippedPet?: string }) => void;
   'player:ready': () => void;
   'player:requestPlayerCount': () => void;
   'lobby:setTeam': (data: { team: number }) => void;

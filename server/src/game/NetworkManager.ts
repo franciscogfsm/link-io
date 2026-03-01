@@ -11,6 +11,20 @@ function convergenceMultiplier(linkCount: number): number {
   return 1 + Math.log2(linkCount) * 0.5;
 }
 
+// Pet bonuses — inlined to avoid ESM issues
+interface PetBonusData { speed?: number; energy?: number; damage?: number; defense?: number; cooldown?: number; linkHp?: number; reach?: number; regen?: number; siphon?: number; magnet?: number }
+const PET_BONUSES: Record<string, PetBonusData> = {
+  pet_none: {},
+  pet_orb: { energy: 0.04 }, pet_cube: { linkHp: 0.06 }, pet_drone: { speed: 0.05 },
+  pet_skull: { damage: 0.07 }, pet_star: { energy: 0.06, regen: 0.04 },
+  pet_dragon: { damage: 0.08, speed: 0.04 }, pet_eye: { reach: 0.12, cooldown: 0.03 },
+  pet_blackhole: { magnet: 0.15, energy: 0.06 }, pet_crown: { damage: 0.08, defense: 0.06, energy: 0.04 },
+  pet_ghost: { cooldown: 0.08, speed: 0.03 }, pet_butterfly: { speed: 0.07, energy: 0.05 },
+  pet_serpent: { siphon: 0.12, damage: 0.05 }, pet_phoenix_bird: { regen: 0.10, defense: 0.06, damage: 0.04 },
+  pet_void_entity: { damage: 0.10, speed: 0.07, cooldown: 0.06, energy: 0.05 },
+};
+function getPetBonus(petId: string): PetBonusData { return PET_BONUSES[petId] || {}; }
+
 let _nextLinkId = 1;
 
 export class NetworkManager {
@@ -140,6 +154,7 @@ export class NetworkManager {
 
       const networkMultiplier = 1 + (effectiveNodes - 1) * this.networkBonusMultiplier;
       const flowBonus = 1 + [0, 0.08, 0.15, 0.25][player.upgrades.flow];
+      const petEnergyBonus = 1 + (getPetBonus(player.equippedPet).energy || 0);
 
       // Build per-node link convergence count for this player
       const nodeConvergence = new Map<string, number>();
@@ -157,7 +172,7 @@ export class NetworkManager {
         const nodeMultiplier = node.isMegaNode ? 5 : node.isPowerNode ? 3 : 1;
         const linksOnNode = nodeConvergence.get(node.id) || 0;
         const converge = convergenceMultiplier(linksOnNode);
-        const generation = (this.baseEnergyPerNode * networkMultiplier * nodeMultiplier * converge) * flowBonus * deltaTime;
+        const generation = (this.baseEnergyPerNode * networkMultiplier * nodeMultiplier * converge) * flowBonus * petEnergyBonus * deltaTime;
         player.energy += generation;
         node.energy = Math.min(node.energy + generation * 0.5, 100);
       }
@@ -229,8 +244,9 @@ export class NetworkManager {
         const enemyPlayer = playerMap.get(toNode.owner!);
         const attacker = playerMap.get(link.owner);
         if (enemyPlayer && attacker && enemyPlayer.energy > 0) {
-          const siphonBonus = 1 + [0, 0.40, 0.80, 1.50][attacker.upgrades.siphon];
-          const siphon = Math.min(this.siphonRate * siphonBonus * deltaTime, enemyPlayer.energy);
+          const siphonBonus = 1 + [0, 0.35, 0.65, 1.05][attacker.upgrades.siphon]; // nerfed T3: 2.5x->2.05x
+          const petSiphon = 1 + (getPetBonus(attacker.equippedPet).siphon || 0);
+          const siphon = Math.min(this.siphonRate * siphonBonus * petSiphon * deltaTime, enemyPlayer.energy);
           enemyPlayer.energy -= siphon;
           attacker.energy += siphon * 0.7; // 70% efficiency
         }

@@ -11,6 +11,7 @@ import {
   getLevelFromXP, xpToNextLevel, xpForLevel, LEVEL_TITLES,
   ALL_COSMETICS, RARITY_COLORS, RARITY_LABELS,
   LOOT_BOXES, DAILY_REWARDS, PITY_THRESHOLD, LEGENDARY_PITY,
+  getPetBonusLabels, PET_BONUSES,
 } from '../../../shared/types';
 
 // ======== Progression helpers ========
@@ -230,30 +231,31 @@ export default function MenuScreen({ onPlay, onCreateLobby, onJoinLobby, error, 
     saveProgression(updated);
     setProg(updated);
 
-    // Build reel items for spin animation (15 fake + 1 real at end)
+    // Build reel items for spin animation (22 fake + 1 real at end — longer spin!)
     const fakeReel: { item: CosmeticItem; rarity: CosmeticRarity }[] = [];
     const rarities: CosmeticRarity[] = ['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic'];
-    for (let i = 0; i < 15; i++) {
+    for (let i = 0; i < 22; i++) {
       // Weighted random for visual effect (show near-misses)
       let fakeRarity: CosmeticRarity;
       const r = Math.random();
-      if (r < 0.35) fakeRarity = 'common';
-      else if (r < 0.60) fakeRarity = 'uncommon';
-      else if (r < 0.80) fakeRarity = 'rare';
-      else if (r < 0.92) fakeRarity = 'epic';
-      else if (r < 0.98) fakeRarity = 'legendary';
+      if (r < 0.30) fakeRarity = 'common';
+      else if (r < 0.55) fakeRarity = 'uncommon';
+      else if (r < 0.75) fakeRarity = 'rare';
+      else if (r < 0.88) fakeRarity = 'epic';
+      else if (r < 0.96) fakeRarity = 'legendary';
       else fakeRarity = 'mythic';
       const fakePool = ALL_COSMETICS.filter(c => c.rarity === fakeRarity && c.source !== 'level');
       const fakeItem = fakePool.length > 0 ? fakePool[Math.floor(Math.random() * fakePool.length)] : ALL_COSMETICS[0];
       fakeReel.push({ item: fakeItem, rarity: fakeRarity });
     }
-    // Near-miss: put a rarity above/below the result near the end
+    // Near-miss psychology: put TWO near-misses right before the result
     const resultIdx = rarities.indexOf(result.rarity);
     if (resultIdx < rarities.length - 1) {
       const nearMissRarity = rarities[resultIdx + 1];
       const nearPool = ALL_COSMETICS.filter(c => c.rarity === nearMissRarity && c.source !== 'level');
       if (nearPool.length > 0) {
-        fakeReel[13] = { item: nearPool[Math.floor(Math.random() * nearPool.length)], rarity: nearMissRarity };
+        fakeReel[19] = { item: nearPool[Math.floor(Math.random() * nearPool.length)], rarity: nearMissRarity };
+        fakeReel[21] = { item: nearPool[Math.floor(Math.random() * nearPool.length)], rarity: nearMissRarity };
       }
     }
     fakeReel.push({ item: result.item, rarity: result.rarity });
@@ -263,10 +265,10 @@ export default function MenuScreen({ onPlay, onCreateLobby, onJoinLobby, error, 
     setBoxResult(result);
     setBoxAnimPhase('spinning');
 
-    // After 2.5s, reveal
+    // Longer spin with dramatic slowdown: 3.5s spin, then reveal
     setTimeout(() => {
       setBoxAnimPhase('reveal');
-    }, 2500);
+    }, 3500);
   }, [prog]);
 
   const closeBoxReveal = useCallback(() => {
@@ -651,10 +653,11 @@ export default function MenuScreen({ onPlay, onCreateLobby, onJoinLobby, error, 
                     {getShopItems().map(item => {
                       const unlocked = isUnlocked(item.id);
                       const equipped = isEquipped(item);
+                      const petBonuses = item.type === 'pet' ? getPetBonusLabels(item.id) : [];
                       return (
                         <div
                           key={item.id}
-                          className={`cosmetic-card ${unlocked ? 'unlocked' : 'locked'} ${equipped ? 'equipped' : ''} rarity-${item.rarity}`}
+                          className={`cosmetic-card ${unlocked ? 'unlocked' : 'locked'} ${equipped ? 'equipped' : ''} rarity-${item.rarity} ${item.type === 'pet' && petBonuses.length > 0 ? 'pet-card-bonus' : ''}`}
                           onClick={() => unlocked && equipCosmetic(item)}
                         >
                           {rarityDot(item.rarity)}
@@ -662,6 +665,13 @@ export default function MenuScreen({ onPlay, onCreateLobby, onJoinLobby, error, 
                           <div className="cosmetic-rarity" style={{ color: RARITY_COLORS[item.rarity] }}>
                             {RARITY_LABELS[item.rarity]}
                           </div>
+                          {petBonuses.length > 0 && (
+                            <div className="pet-bonus-list">
+                              {petBonuses.map((b, i) => (
+                                <span key={i} className="pet-bonus-tag">{b}</span>
+                              ))}
+                            </div>
+                          )}
                           {!unlocked && item.source === 'box' && (
                             <div className="cosmetic-lock cosmetic-box-only">CRATE ONLY</div>
                           )}
@@ -729,11 +739,45 @@ export default function MenuScreen({ onPlay, onCreateLobby, onJoinLobby, error, 
 
         {/* ==================== LOOT BOX OPENING OVERLAY ==================== */}
         {openingBox && boxResult && (
-          <div className="box-opening-overlay">
-            <div className="box-opening-modal">
+          <div className={`box-opening-overlay ${boxAnimPhase === 'reveal' ? `reveal-rarity-${boxResult.rarity}` : ''}`}>
+            <div className={`box-opening-modal ${boxAnimPhase}`}>
+
+              {/* Particle canvas renders behind the modal content */}
+              {boxAnimPhase === 'reveal' && (
+                <div className="reveal-particles-container">
+                  {Array.from({ length: 30 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className={`reveal-particle particle-${i % 6}`}
+                      style={{
+                        '--px': `${Math.random() * 100}%`,
+                        '--py': `${Math.random() * 100}%`,
+                        '--delay': `${Math.random() * 0.5}s`,
+                        '--size': `${3 + Math.random() * 6}px`,
+                        '--color': RARITY_COLORS[boxResult.rarity],
+                        '--angle': `${Math.random() * 360}deg`,
+                        '--dist': `${80 + Math.random() * 150}px`,
+                      } as React.CSSProperties}
+                    />
+                  ))}
+                </div>
+              )}
+
               {boxAnimPhase === 'spinning' && (
                 <div className="box-spin-container">
                   <div className="box-spin-title" style={{ color: openingBox.color }}>{openingBox.name}</div>
+                  <div className="box-crate-3d">
+                    <div className="crate-3d-box" style={{ borderColor: openingBox.color }}>
+                      <div className="crate-3d-face crate-3d-front" style={{ borderColor: openingBox.color }}>
+                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke={openingBox.color} strokeWidth="1.5">
+                          <rect x="2" y="8" width="20" height="14" rx="2"/>
+                          <path d="M12 8V2M7 8l5-6 5 6"/>
+                          <line x1="2" y1="14" x2="22" y2="14" strokeDasharray="2 2"/>
+                        </svg>
+                      </div>
+                      <div className="crate-shake-glow" style={{ background: `radial-gradient(circle, ${openingBox.color}60 0%, transparent 70%)` }} />
+                    </div>
+                  </div>
                   <div className="box-reel-viewport">
                     <div className="box-reel-pointer" />
                     <div className="box-reel-strip">
@@ -746,26 +790,54 @@ export default function MenuScreen({ onPlay, onCreateLobby, onJoinLobby, error, 
                       ))}
                     </div>
                   </div>
+                  <div className="spin-suspense-text">OPENING...</div>
                 </div>
               )}
 
               {boxAnimPhase === 'reveal' && (
                 <div className={`box-reveal rarity-reveal-${boxResult.rarity}`}>
-                  <div className="reveal-glow" style={{ background: `radial-gradient(circle, ${RARITY_COLORS[boxResult.rarity]}40 0%, transparent 70%)` }} />
-                  <div className="reveal-rarity" style={{ color: RARITY_COLORS[boxResult.rarity] }}>
+                  {/* Multi-layer glow */}
+                  <div className="reveal-glow-outer" style={{ background: `radial-gradient(circle, ${RARITY_COLORS[boxResult.rarity]}20 0%, transparent 60%)` }} />
+                  <div className="reveal-glow" style={{ background: `radial-gradient(circle, ${RARITY_COLORS[boxResult.rarity]}50 0%, transparent 70%)` }} />
+                  <div className="reveal-flash" style={{ borderColor: RARITY_COLORS[boxResult.rarity] }} />
+
+                  {/* Rarity banner */}
+                  <div className="reveal-rarity-banner" style={{ color: RARITY_COLORS[boxResult.rarity], textShadow: `0 0 20px ${RARITY_COLORS[boxResult.rarity]}, 0 0 40px ${RARITY_COLORS[boxResult.rarity]}80` }}>
                     {RARITY_LABELS[boxResult.rarity]}
                   </div>
+
+                  {/* Item icon placeholder with animated ring */}
+                  <div className="reveal-item-showcase">
+                    <div className="reveal-ring" style={{ borderColor: RARITY_COLORS[boxResult.rarity] }} />
+                    <div className="reveal-ring reveal-ring-2" style={{ borderColor: RARITY_COLORS[boxResult.rarity] }} />
+                    <div className="reveal-item-icon" style={{ background: `radial-gradient(circle, ${RARITY_COLORS[boxResult.rarity]}30 0%, transparent 70%)` }}>
+                      <span className="reveal-item-dot-big" style={{ background: RARITY_COLORS[boxResult.rarity] }} />
+                    </div>
+                  </div>
+
                   <div className="reveal-name">{boxResult.item.name}</div>
                   <div className="reveal-type">{boxResult.item.type.toUpperCase()}</div>
                   <div className="reveal-desc">{boxResult.item.description}</div>
+
+                  {/* Show pet bonuses on reveal! */}
+                  {boxResult.item.type === 'pet' && getPetBonusLabels(boxResult.item.id).length > 0 && (
+                    <div className="reveal-pet-bonuses">
+                      <div className="reveal-bonus-title">STAT BONUSES</div>
+                      {getPetBonusLabels(boxResult.item.id).map((b, i) => (
+                        <span key={i} className="reveal-bonus-tag">{b}</span>
+                      ))}
+                    </div>
+                  )}
+
                   {boxResult.isDuplicate && (
                     <div className="reveal-duplicate">
-                      DUPLICATE — +{DUPE_REFUND[boxResult.rarity]} coins refunded
+                      DUPLICATE -- +{DUPE_REFUND[boxResult.rarity]} coins refunded
                     </div>
                   )}
                   <div className="reveal-actions">
                     {!boxResult.isDuplicate && (
-                      <button className="btn btn-equip" onClick={() => { equipCosmetic(boxResult.item); closeBoxReveal(); }}>
+                      <button className="btn btn-equip btn-equip-glow" onClick={() => { equipCosmetic(boxResult.item); closeBoxReveal(); }}
+                        style={{ boxShadow: `0 0 20px ${RARITY_COLORS[boxResult.rarity]}60` }}>
                         EQUIP NOW
                       </button>
                     )}

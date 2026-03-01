@@ -46,6 +46,7 @@ export class RoomManager {
   private playerLobbies = new Map<string, string>(); // socketId -> lobbyCode
   private lobbyToRoom = new Map<string, string>();   // lobbyCode -> roomId (for rejoin after game starts)
   private teamsQueue: QueueEntry[] = [];            // queue for 2v2 matchmaking
+  private playerPets = new Map<string, string>();     // socketId -> equippedPet
   private io: Server<ClientToServerEvents, ServerToClientEvents>;
 
   constructor(io: Server<ClientToServerEvents, ServerToClientEvents>) {
@@ -54,6 +55,8 @@ export class RoomManager {
 
   handleConnection(socket: Socket<ClientToServerEvents, ServerToClientEvents>): void {
     socket.on('player:join', (data) => {
+      // Store equipped pet for this socket
+      if (data.equippedPet) this.playerPets.set(socket.id, data.equippedPet);
       if (data.roomCode) {
         // Try lobby first, then room
         const lobby = this.lobbies.get(data.roomCode.toUpperCase());
@@ -70,6 +73,7 @@ export class RoomManager {
     });
 
     socket.on('player:createRoom', (data) => {
+      if (data.equippedPet) this.playerPets.set(socket.id, data.equippedPet);
       this.createLobby(socket, data.name, data.gameMode || 'ffa');
     });
 
@@ -474,7 +478,8 @@ export class RoomManager {
       }
     }
 
-    const player = room.addPlayer(socket, name, forcedTeam);
+    const equippedPet = this.playerPets.get(socket.id) || 'pet_none';
+    const player = room.addPlayer(socket, name, forcedTeam, equippedPet);
     if (!player) {
       socket.emit('room:error', { message: 'Could not join room.' });
       return;
