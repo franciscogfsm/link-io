@@ -47,7 +47,7 @@ const NODES_PER_PLAYER = 15;         // extra neutral nodes spawned per player
 const TICK_RATE = 20; // lower tick rate for better server performance
 const TICK_INTERVAL = 1000 / TICK_RATE;
 const GAME_DURATION = 180;
-const INITIAL_ENERGY = 50;
+const INITIAL_ENERGY = 80; // buffed from 50 so players can immediately create links
 const MAX_PLAYERS = 8;
 const MIN_PLAYERS_TO_START = 2;
 const NEUTRAL_NODE_COUNT = 80;
@@ -66,7 +66,7 @@ const GOLD_NODE_LIFETIME = 6;        // seconds before gold node despawns
 // Respawn system
 const RESPAWN_TIME = 5; // seconds to respawn
 const RESPAWN_INVULN_TIME = 3; // seconds of invulnerability after respawn
-const RESPAWN_ENERGY = 30; // energy on respawn
+const RESPAWN_ENERGY = 60; // buffed from 30
 
 // Health system
 const PLAYER_MAX_HEALTH = 100;

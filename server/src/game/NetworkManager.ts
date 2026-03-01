@@ -7,14 +7,14 @@ import { v4 as uuidv4 } from 'uuid';
 import type { GameNode, GameLink, Player } from '../../../shared/types.js';
 
 export class NetworkManager {
-  private linkCostBase = 10;
-  private linkCostPerDistance = 0.02;
+  private linkCostBase = 6;           // reduced from 10 — links easier to afford
+  private linkCostPerDistance = 0.015; // reduced from 0.02
   private maxLinkDistance = 350;
-  private baseEnergyPerNode = 0.3;     // nerfed from 0.6
+  private baseEnergyPerNode = 0.5;     // buffed from 0.3
   private combatDamagePerSecond = 25;
-  private networkBonusMultiplier = 0.015; // nerfed from 0.03
-  private captureSpeed = 20; // % per second — 5s to capture a node
-  private siphonRate = 0.8; // energy stolen per second per attacking link (nerfed from 1.5)
+  private networkBonusMultiplier = 0.015;
+  private captureSpeed = 20;
+  private siphonRate = 0.8;
   // Reusable maps to avoid per-tick allocations
   private _playerMap = new Map<string, Player>();
   private _nodeMap = new Map<string, GameNode>();
@@ -127,9 +127,9 @@ export class NetworkManager {
         node.energy = Math.min(node.energy + generation * 0.5, 100);
       }
 
-      // Core passive gen (nerfed from 0.4)
+      // Core passive gen (buffed from 0.2)
       if (nodeCount > 0) {
-        player.energy += 0.2 * deltaTime;
+        player.energy += 0.4 * deltaTime;
       }
 
       player.nodeCount = nodeCount;

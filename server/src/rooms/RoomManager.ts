@@ -396,6 +396,7 @@ export class RoomManager {
     const info: LobbyInfo = {
       code: lobby.code,
       gameMode: lobby.gameMode,
+      hostId: lobby.hostId,
       hostName: hostPlayer?.name || 'Unknown',
       players: [...lobby.players.entries()].map(([id, p]) => ({
         id,

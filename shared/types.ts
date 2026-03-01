@@ -252,6 +252,7 @@ export interface RoomInfo {
 export interface LobbyInfo {
   code: string;
   gameMode: GameMode;
+  hostId: string;
   hostName: string;
   players: { id: string; name: string; team: number; ready: boolean }[];
   maxPlayers: number;

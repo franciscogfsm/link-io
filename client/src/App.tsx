@@ -238,6 +238,7 @@ export default function App() {
           error={error}
           connecting={connecting}
           roomCode={roomCode}
+          playerId={playerId}
           lobbyInfo={lobbyInfo}
           queueStatus={queueStatus}
           onLobbySetTeam={handleLobbySetTeam}

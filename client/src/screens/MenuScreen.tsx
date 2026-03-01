@@ -42,6 +42,7 @@ interface MenuScreenProps {
   error: string | null;
   connecting: boolean;
   roomCode?: string;
+  playerId?: string;
   lobbyInfo?: LobbyInfo | null;
   queueStatus?: { position: number; playersNeeded: number; message: string } | null;
   onLobbySetTeam?: (team: number) => void;
@@ -49,7 +50,7 @@ interface MenuScreenProps {
   onLobbyStartGame?: () => void;
 }
 
-export default function MenuScreen({ onPlay, onCreateLobby, onJoinLobby, error, connecting, roomCode, lobbyInfo, queueStatus, onLobbySetTeam, onLobbyToggleReady, onLobbyStartGame }: MenuScreenProps) {
+export default function MenuScreen({ onPlay, onCreateLobby, onJoinLobby, error, connecting, roomCode, playerId, lobbyInfo, queueStatus, onLobbySetTeam, onLobbyToggleReady, onLobbyStartGame }: MenuScreenProps) {
   const [name, setName] = useState(() => localStorage.getItem('linkio-name') || '');
   const [joinCode, setJoinCode] = useState('');
   const [gameMode, setGameMode] = useState<GameMode>('ffa');
@@ -221,7 +222,19 @@ export default function MenuScreen({ onPlay, onCreateLobby, onJoinLobby, error, 
           <div className="menu-lobby">
             <div className="lobby-header">
               <span className="lobby-title">{lobbyInfo.gameMode === 'teams' ? '2v2 TEAMS' : 'FFA'} LOBBY</span>
-              <span className="lobby-code">{lobbyInfo.code}</span>
+              <span
+                className={`lobby-code clickable${copied ? ' copied' : ''}`}
+                onClick={() => {
+                  navigator.clipboard.writeText(lobbyInfo.code).then(() => {
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                  }).catch(() => {});
+                }}
+                title="Click to copy code"
+              >
+                {lobbyInfo.code}
+                <span className="lobby-code-copy-icon">{copied ? ' ✓' : ' 📋'}</span>
+              </span>
             </div>
             <div className="lobby-players">
               {lobbyInfo.gameMode === 'teams' ? (
@@ -275,10 +288,13 @@ export default function MenuScreen({ onPlay, onCreateLobby, onJoinLobby, error, 
                   TOGGLE READY
                 </button>
               )}
-              {onLobbyStartGame && (
+              {onLobbyStartGame && playerId === lobbyInfo.hostId && (
                 <button className="btn btn-primary" onClick={onLobbyStartGame}>
                   START GAME
                 </button>
+              )}
+              {lobbyInfo.hostId !== playerId && (
+                <div className="lobby-host-hint">Waiting for <strong>{lobbyInfo.hostName}</strong> to start…</div>
               )}
             </div>
           </div>
