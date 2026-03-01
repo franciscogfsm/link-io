@@ -114,6 +114,11 @@ export class GameRenderer {
     this.camera.applyTransform(ctx);
     this.drawBoundary(ctx, state.arenaWidth, state.arenaHeight);
 
+    // Map Events (draw beneath nodes and links)
+    if (state.mapEvents && state.mapEvents.length > 0) {
+      this.drawMapEvents(ctx, state.mapEvents);
+    }
+
     // Link range circle when dragging
     if (dragState.active && dragState.fromNodeId) {
       this.drawLinkRange(ctx, dragState, state.nodes, playerId, state.players);
@@ -169,6 +174,45 @@ export class GameRenderer {
     this.drawMinimap(ctx, state, playerId);
 
     ctx.restore();
+  }
+
+  private drawMapEvents(ctx: CanvasRenderingContext2D, events: any[]): void {
+    const time = Date.now() * 0.001;
+    for (const evt of events) {
+      ctx.save();
+      ctx.translate(evt.position.x, evt.position.y);
+
+      // Map event base colors
+      let baseColor = '';
+      if (evt.type === 'energy_storm') baseColor = '0, 255, 128'; // Greenish
+      else if (evt.type === 'power_surge') baseColor = '255, 0, 80'; // Reddish
+      else if (evt.type === 'overcharge') baseColor = '180, 0, 255'; // Purple
+      else continue;
+
+      const pulse = Math.sin(time * 3) * 0.1 + 0.9;
+      const alpha = Math.min(1, evt.remaining / 2) * 0.2 * evt.intensity * pulse;
+
+      // Inner glow fill
+      const grad = ctx.createRadialGradient(0, 0, evt.radius * 0.1, 0, 0, evt.radius);
+      grad.addColorStop(0, `rgba(${baseColor}, ${alpha})`);
+      grad.addColorStop(1, `rgba(${baseColor}, 0)`);
+
+      ctx.beginPath();
+      ctx.arc(0, 0, evt.radius, 0, Math.PI * 2);
+      ctx.fillStyle = grad;
+      ctx.fill();
+
+      // Dashed animated border
+      ctx.rotate(time * 0.5);
+      ctx.beginPath();
+      ctx.arc(0, 0, Math.max(0, evt.radius - 2), 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(${baseColor}, ${alpha * 2})`;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([15, 15]);
+      ctx.stroke();
+
+      ctx.restore();
+    }
   }
 
   private updateFloatingTexts(ctx: CanvasRenderingContext2D, dt: number): void {
@@ -261,7 +305,9 @@ export class GameRenderer {
       const ny = mmY + node.position.y * scaleY;
       const player = node.owner ? state.players.find((p) => p.id === node.owner) : null;
 
-      if (node.isPowerNode && !node.owner) {
+      if (node.isGoldNode && !node.owner) {
+        ctx.fillStyle = '#ffd700';
+      } else if (node.isPowerNode && !node.owner) {
         ctx.fillStyle = '#ffbe0b';
       } else if (node.isMegaNode && !node.owner) {
         ctx.fillStyle = '#ff00ff';
@@ -269,7 +315,7 @@ export class GameRenderer {
         ctx.fillStyle = player?.color || '#334';
       }
 
-      const r = node.isCore ? 3 : node.isPowerNode || node.isMegaNode ? 2.5 : 1.5;
+      const r = node.isCore ? 3 : node.isPowerNode || node.isMegaNode || node.isGoldNode ? 2.5 : 1.5;
       ctx.beginPath();
       ctx.arc(nx, ny, r, 0, Math.PI * 2);
       ctx.fill();
@@ -355,6 +401,15 @@ export class GameRenderer {
     const healthAlpha = link.health / link.maxHealth;
     const pulse = 0.7 + 0.3 * Math.sin(this.time * 3 + link.energyFlow * 10);
 
+    // Check link stretch distance for visual warning
+    const ldx = toNode.position.x - fromNode.position.x;
+    const ldy = toNode.position.y - fromNode.position.y;
+    const linkDist = Math.sqrt(ldx * ldx + ldy * ldy);
+    const STRETCH_WARN = 420;
+    const STRETCH_BREAK = 500;
+    const isStretched = linkDist > STRETCH_WARN;
+    const stretchRatio = isStretched ? Math.min(1, (linkDist - STRETCH_WARN) / (STRETCH_BREAK - STRETCH_WARN)) : 0;
+
     ctx.save();
 
     // Shield glow
@@ -385,8 +440,10 @@ export class GameRenderer {
 
     // Main line
     ctx.shadowBlur = 0;
-    ctx.strokeStyle = colors.main;
-    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = isStretched
+      ? `rgba(255, ${Math.floor(50 * (1 - stretchRatio))}, ${Math.floor(50 * (1 - stretchRatio))}, ${0.9 * (0.4 + 0.6 * Math.sin(this.time * 12))})`
+      : colors.main;
+    ctx.lineWidth = isStretched ? 2.5 - stretchRatio * 1.5 : 2.5;
     ctx.globalAlpha = healthAlpha * 0.9;
     ctx.beginPath();
     ctx.moveTo(fromNode.position.x, fromNode.position.y);
@@ -428,9 +485,11 @@ export class GameRenderer {
     const player = node.owner ? players.find((p) => p.id === node.owner) : null;
     const isOwned = node.owner === playerId;
 
-    // Special colors for power/mega nodes
+    // Special colors for power/mega/gold nodes
     let colors;
-    if (!node.owner && node.isMegaNode) {
+    if (node.isGoldNode && !node.owner) {
+      colors = { main: '#ffd700', glow: 'rgba(255, 215, 0, 0.5)', dark: 'rgba(120, 100, 0, 0.6)' };
+    } else if (!node.owner && node.isMegaNode) {
       colors = { main: '#ff00ff', glow: 'rgba(255, 0, 255, 0.5)', dark: 'rgba(100, 0, 100, 0.6)' };
     } else if (!node.owner && node.isPowerNode) {
       colors = { main: '#ffbe0b', glow: 'rgba(255, 190, 11, 0.5)', dark: 'rgba(100, 80, 0, 0.6)' };
@@ -452,6 +511,35 @@ export class GameRenderer {
       ctx.arc(x, y, node.radius + 12, 0, Math.PI * 2);
       ctx.stroke();
       ctx.shadowBlur = 0;
+      ctx.globalAlpha = 1;
+    }
+
+    // Gold node sparkle effect (fades as timer expires)
+    if (node.isGoldNode && node.goldEnergy > 0) {
+      const expireFade = Math.min(1, (node.goldExpireTimer || 0) / 3); // fade out in last 3s
+      const goldPulse = 0.5 + 0.5 * Math.sin(this.time * 5);
+      const urgency = expireFade < 0.5 ? 0.3 + 0.7 * Math.sin(this.time * 12) : 1; // flash when dying
+      const sparkleCount = 6;
+      for (let i = 0; i < sparkleCount; i++) {
+        const angle = this.time * 1.2 + (i / sparkleCount) * Math.PI * 2;
+        const dist = node.radius + 14 + Math.sin(this.time * 3 + i) * 4;
+        const sx = x + Math.cos(angle) * dist;
+        const sy = y + Math.sin(angle) * dist;
+        ctx.fillStyle = '#ffd700';
+        ctx.globalAlpha = goldPulse * 0.7 * expireFade * urgency;
+        ctx.beginPath();
+        ctx.arc(sx, sy, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+
+      // Gold energy remaining label + timer
+      ctx.font = 'bold 10px sans-serif';
+      ctx.fillStyle = expireFade < 0.5 ? '#ff6b6b' : '#ffd700';
+      ctx.globalAlpha = (0.6 + goldPulse * 0.4) * Math.max(0.3, expireFade);
+      ctx.textAlign = 'center';
+      const timerText = node.goldExpireTimer > 0 ? ` ${Math.ceil(node.goldExpireTimer)}s` : '';
+      ctx.fillText(`⚡${Math.ceil(node.goldEnergy)}${timerText}`, x, y - node.radius - 10);
       ctx.globalAlpha = 1;
     }
 
@@ -505,7 +593,7 @@ export class GameRenderer {
     }
 
     // Outer glow
-    const glowSize = node.radius * (node.isCore ? 3.5 : node.isPowerNode || node.isMegaNode ? 3 : 2.5);
+    const glowSize = node.radius * (node.isCore ? 3.5 : node.isPowerNode || node.isMegaNode || node.isGoldNode ? 3 : 2.5);
     const pulse = node.isCore ? 0.6 + 0.4 * Math.sin(this.time * 2) : 0.5 + 0.2 * Math.sin(this.time * 1.5);
     const gradient = ctx.createRadialGradient(x, y, 0, x, y, glowSize);
     gradient.addColorStop(0, colors.glow.replace('0.5', String(pulse * 0.4)));
@@ -546,13 +634,59 @@ export class GameRenderer {
       ctx.stroke();
       ctx.globalAlpha = 1;
 
+      // — HEALTH BAR above core nodes —
+      if (player) {
+        const hp = player.health ?? player.maxHealth ?? 100;
+        const maxHp = player.maxHealth ?? 100;
+        const hpPercent = Math.max(0, Math.min(1, hp / maxHp));
+
+        if (hpPercent < 1 || node.owner === playerId) {
+          const barW = 50;
+          const barH = 5;
+          const barX = x - barW / 2;
+          const barY = y - node.radius - 22;
+
+          // Background
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+          ctx.beginPath();
+          ctx.roundRect(barX - 1, barY - 1, barW + 2, barH + 2, 3);
+          ctx.fill();
+
+          // Health fill
+          const hpColor = hpPercent > 0.6 ? '#39ff14' : hpPercent > 0.3 ? '#ffbe0b' : '#ff006e';
+          ctx.fillStyle = hpColor;
+          ctx.shadowColor = hpColor;
+          ctx.shadowBlur = 6;
+          ctx.beginPath();
+          ctx.roundRect(barX, barY, barW * hpPercent, barH, 2);
+          ctx.fill();
+          ctx.shadowBlur = 0;
+
+          // HP text
+          ctx.font = '9px Orbitron, monospace';
+          ctx.fillStyle = '#ffffff';
+          ctx.globalAlpha = 0.8;
+          ctx.textAlign = 'center';
+          ctx.fillText(`${Math.ceil(hp)} HP`, x, barY - 4);
+          ctx.globalAlpha = 1;
+        }
+
+        // Player name label under core
+        ctx.font = '10px Orbitron, monospace';
+        ctx.fillStyle = colors.main;
+        ctx.globalAlpha = 0.7;
+        ctx.textAlign = 'center';
+        ctx.fillText(player.name, x, y + node.radius + 18);
+        ctx.globalAlpha = 1;
+      }
+
       if (isOwned && !isDragging) {
         ctx.shadowBlur = 0;
         ctx.font = '10px Orbitron, monospace';
         ctx.fillStyle = colors.main;
         ctx.globalAlpha = 0.5 + 0.3 * Math.sin(this.time * 2);
         ctx.textAlign = 'center';
-        ctx.fillText('⬆ DRAG FROM HERE', x, y + node.radius * 2 + 14);
+        ctx.fillText('⬆ DRAG FROM HERE', x, y + node.radius * 2 + 28);
         ctx.globalAlpha = 1;
       }
     }
@@ -601,6 +735,35 @@ export class GameRenderer {
     ctx.beginPath();
     ctx.arc(x, y, node.radius * 0.3, 0, Math.PI * 2);
     ctx.fill();
+
+    // Node Capture Progress ring
+    if (node.captureProgress && node.captureProgress > 0 && node.capturedBy) {
+      const capturer = players.find(p => p.id === node.capturedBy);
+      if (capturer) {
+        const captColor = getPlayerColor(capturer.color);
+        const startAngle = -Math.PI / 2;
+        const endAngle = startAngle + (node.captureProgress * Math.PI * 2);
+
+        // Background track
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.4)';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(x, y, node.radius + 4, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Progress fill
+        ctx.strokeStyle = captColor.main;
+        ctx.lineWidth = 3;
+        ctx.lineCap = 'round';
+        ctx.shadowColor = captColor.glow;
+        ctx.shadowBlur = 8;
+        ctx.beginPath();
+        ctx.arc(x, y, node.radius + 4, startAngle, endAngle);
+        ctx.stroke();
+        ctx.lineCap = 'butt';
+        ctx.shadowBlur = 0;
+      }
+    }
 
     // Invulnerability shield - pulsing rainbow ring
     if (node.owner && invulnerablePlayerIds.has(node.owner)) {

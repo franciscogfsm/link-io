@@ -1,32 +1,51 @@
 // ============================================================
 // LINK.IO Client - Game Over Screen
-// Winner announcement with full stats
+// Winner announcement with full stats + XP gain
 // ============================================================
 
 import type { Player } from '../../../shared/types';
 
 interface GameOverScreenProps {
   winner: Player | null;
+  winningTeam?: number;
   scores: Player[];
   currentPlayerId: string;
   onPlayAgain: () => void;
   onMainMenu: () => void;
+  xpGained?: number;
 }
 
-export default function GameOverScreen({ winner, scores, currentPlayerId, onPlayAgain, onMainMenu }: GameOverScreenProps) {
-  const isWinner = winner?.id === currentPlayerId;
+export default function GameOverScreen({ winner, winningTeam, scores, currentPlayerId, onPlayAgain, onMainMenu, xpGained }: GameOverScreenProps) {
+  const isWinner = winningTeam 
+    ? scores.find(p => p.id === currentPlayerId)?.team === winningTeam
+    : winner?.id === currentPlayerId;
+    
   const titleClass = isWinner ? 'gameover-winner' : 'gameover-loser';
   const titleText = isWinner ? 'VICTORY' : 'DEFEATED';
+
+  const teamNames = { 1: 'BLUE TEAM', 2: 'RED TEAM' };
+  const me = scores.find(p => p.id === currentPlayerId);
 
   return (
     <div className="gameover-overlay">
       <div className="gameover-container">
         <h1 className={`gameover-title ${titleClass}`}>{titleText}</h1>
 
-      {winner && (
+      {(winner || winningTeam) && (
         <p className="gameover-subtitle">
-          {isWinner ? 'Your network reigns supreme!' : `${winner.name} has dominated the arena`}
+          {winningTeam 
+            ? (isWinner ? `Your team claimed victory!` : `${teamNames[winningTeam as keyof typeof teamNames] || 'The enemy team'} won the arena`)
+            : (isWinner ? 'Your network reigns supreme!' : `${winner?.name || 'Someone'} has dominated the arena`)}
         </p>
+      )}
+
+      {/* XP Gain Display */}
+      {xpGained && xpGained > 0 && (
+        <div className="gameover-xp">
+          <span className="xp-gain">+{xpGained} XP</span>
+          {isWinner && <span className="xp-bonus">WIN BONUS!</span>}
+          {me && me.bestStreak >= 5 && <span className="xp-bonus">STREAK BONUS!</span>}
+        </div>
       )}
 
       <div className="gameover-scores">
@@ -46,17 +65,19 @@ export default function GameOverScreen({ winner, scores, currentPlayerId, onPlay
             </span>
             <div className="gameover-score-stats">
               <span className="gameover-score-metric">Score: {Math.floor(player.score)}</span>
+              {player.team > 0 && <span className="gameover-score-metric team-metric">Team {player.team}</span>}
               <span className="gameover-score-metric">Kills: {player.killCount}</span>
               <span className="gameover-score-metric">Deaths: {player.deaths}</span>
               <span className="gameover-score-metric">Best Streak: {player.bestStreak}</span>
               <span className="gameover-score-metric">Nodes: {player.nodeCount}</span>
+              <span className="gameover-score-metric">Max Chain: {player.longestChain}</span>
             </div>
           </div>
         ))}
       </div>
 
       <div className="gameover-buttons">
-        <button className="btn btn-primary" onClick={onPlayAgain} id="play-again-button">
+        <button className="btn btn-primary gameover-play-again" onClick={onPlayAgain} id="play-again-button">
           PLAY AGAIN
         </button>
         <button className="btn btn-secondary" onClick={onMainMenu} id="main-menu-button">

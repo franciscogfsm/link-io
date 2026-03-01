@@ -3,19 +3,22 @@
 // Energy, timer, abilities, combo, score
 // ============================================================
 
-import React from 'react';
-import type { Player, GameState, AbilityType } from '../../../shared/types';
+import React, { useState } from 'react';
+import type { Player, GameState, AbilityType, UpgradeType } from '../../../shared/types';
+import { UPGRADE_COSTS, UPGRADE_LABELS, UPGRADE_DESCRIPTIONS, UPGRADE_MAX_TIER, UPGRADE_CATEGORIES, UPGRADE_ICONS } from '../../../shared/types';
 
 interface HUDProps {
   player: Player | undefined;
   state: GameState;
   roomCode: string;
   onUseAbility: (ability: AbilityType) => void;
+  onUpgrade: (upgrade: UpgradeType) => void;
   isDead?: boolean;
   respawnTimer?: number;
 }
 
-export default function HUD({ player, state, roomCode, onUseAbility, isDead, respawnTimer }: HUDProps) {
+export default function HUD({ player, state, roomCode, onUseAbility, onUpgrade, isDead, respawnTimer }: HUDProps) {
+  const [showUpgrades, setShowUpgrades] = useState(false);
   const minutes = Math.floor(state.timeRemaining / 60);
   const seconds = Math.floor(state.timeRemaining % 60);
   const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
@@ -24,6 +27,11 @@ export default function HUD({ player, state, roomCode, onUseAbility, isDead, res
   const energy = player?.energy ?? 0;
   const maxEnergy = 999;
   const energyPercent = Math.min((energy / maxEnergy) * 100, 100);
+
+  const healthPercent = Math.min(
+    ((player?.health ?? 100) / (player?.maxHealth ?? 100)) * 100,
+    100
+  );
 
   const abilities: { type: AbilityType; icon: React.ReactNode; label: string; cost: number; key: string }[] = [
     {
@@ -46,7 +54,7 @@ export default function HUD({ player, state, roomCode, onUseAbility, isDead, res
       ),
       label: 'SHIELD',
       cost: 30,
-      key: 'W'
+      key: 'R'
     },
     {
       type: 'emp',
@@ -87,6 +95,33 @@ export default function HUD({ player, state, roomCode, onUseAbility, isDead, res
               </div>
               <span className="hud-energy-value">{Math.floor(energy)}</span>
             </div>
+
+            {/* Health bar */}
+            <div className="hud-score-row" style={{ marginTop: 8 }}>
+              <span className="hud-energy-label" style={{ color: '#ff006e' }}>Health</span>
+              <span className="hud-energy-value" style={{ color: healthPercent > 60 ? '#39ff14' : healthPercent > 30 ? '#ffbe0b' : '#ff006e' }}>
+                {Math.ceil(player.health ?? 0)} / {player.maxHealth ?? 100}
+              </span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div className="hud-energy-bar" style={{ background: 'rgba(255, 0, 110, 0.15)' }}>
+                <div
+                  className="hud-energy-fill"
+                  style={{
+                    width: `${healthPercent}%`,
+                    background: healthPercent > 60
+                      ? 'linear-gradient(90deg, #39ff14, #00ff88)'
+                      : healthPercent > 30
+                      ? 'linear-gradient(90deg, #ffbe0b, #ff9500)'
+                      : 'linear-gradient(90deg, #ff006e, #ff0044)',
+                    boxShadow: healthPercent <= 30
+                      ? '0 0 12px rgba(255, 0, 110, 0.6)'
+                      : 'none',
+                  }}
+                />
+              </div>
+            </div>
+
             <div className="hud-stats">
               <div className="hud-stat">
                 <span className="hud-stat-value">{player.nodeCount}</span>
@@ -180,6 +215,87 @@ export default function HUD({ player, state, roomCode, onUseAbility, isDead, res
               );
             })}
           </div>
+
+          {/* Click streak indicator */}
+          {player.clickStreak >= 3 && (
+            <div className="hud-click-streak" style={{
+              background: player.clickStreak >= 20 ? 'rgba(255, 190, 11, 0.25)' :
+                           player.clickStreak >= 10 ? 'rgba(57, 255, 20, 0.2)' :
+                           'rgba(0, 240, 255, 0.15)',
+              border: `1px solid ${player.clickStreak >= 20 ? '#ffbe0b' : player.clickStreak >= 10 ? '#39ff14' : '#00f0ff'}`,
+              borderRadius: 6,
+              padding: '4px 10px',
+              marginTop: 4,
+              textAlign: 'center',
+              fontSize: 11,
+              fontFamily: 'Orbitron, monospace',
+              color: player.clickStreak >= 20 ? '#ffbe0b' : player.clickStreak >= 10 ? '#39ff14' : '#00f0ff',
+              textShadow: `0 0 6px currentColor`,
+            }}>
+              ⚡ CLICK x{player.clickStreak} {player.clickStreak >= 20 ? '💥 MADNESS' : player.clickStreak >= 10 ? '🔥 FRENZY' : ''}
+            </div>
+          )}
+
+          {/* Upgrade Shop Toggle */}
+          <button
+            className={`upgrade-toggle-btn ${showUpgrades ? 'active' : ''}`}
+            onClick={() => setShowUpgrades(!showUpgrades)}
+          >
+            <span className="upgrade-toggle-icon">⬆</span>
+            <span>UPGRADES</span>
+            {showUpgrades ? <span className="upgrade-toggle-arrow">▼</span> : <span className="upgrade-toggle-arrow">▶</span>}
+          </button>
+
+          {/* Upgrade Shop — categorized */}
+          {showUpgrades && (
+            <div className="upgrade-shop">
+              {Object.entries(UPGRADE_CATEGORIES).map(([category, types]) => (
+                <div key={category} className="upgrade-category">
+                  <div className="upgrade-category-label">{category}</div>
+                  <div className="upgrade-category-items">
+                    {types.map((type) => {
+                      const tier = player.upgrades[type];
+                      const maxed = tier >= UPGRADE_MAX_TIER;
+                      const cost = maxed ? 0 : UPGRADE_COSTS[type][tier];
+                      const canAfford = energy >= cost;
+                      const canBuy = !maxed && canAfford;
+                      const desc = maxed ? 'MAXED' : UPGRADE_DESCRIPTIONS[type][tier];
+
+                      return (
+                        <button
+                          key={type}
+                          className={`upgrade-btn ${canBuy ? 'available' : ''} ${maxed ? 'maxed' : ''}`}
+                          onClick={() => canBuy && onUpgrade(type)}
+                          disabled={!canBuy}
+                          title={`${UPGRADE_LABELS[type]}: ${desc}`}
+                        >
+                          <div className="upgrade-header">
+                            <span className="upgrade-icon-emoji">{UPGRADE_ICONS[type]}</span>
+                            <span className="upgrade-name">{UPGRADE_LABELS[type]}</span>
+                            <div className="upgrade-tiers">
+                              {Array.from({ length: UPGRADE_MAX_TIER }, (_, i) => (
+                                <span key={i} className={`upgrade-pip ${i < tier ? 'filled' : ''}`}>◆</span>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="upgrade-footer">
+                            <span className="upgrade-desc">{desc}</span>
+                            {maxed ? (
+                              <span className="upgrade-maxed-label">MAX</span>
+                            ) : (
+                              <span className={`upgrade-cost ${canAfford ? '' : 'too-expensive'}`}>
+                                {cost}⚡
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </>
       )}
 

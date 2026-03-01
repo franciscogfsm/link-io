@@ -21,6 +21,7 @@ export class InputHandler {
   private nodes: GameNode[] = [];
   private links: { fromNodeId: string; toNodeId: string }[] = [];
   private onCreateLink: ((fromNodeId: string, toNodeId: string) => void) | null = null;
+  private onClickNode: ((nodeId: string) => void) | null = null;
   private _dragState: LinkDragState = { active: false, fromNodeId: null, mouseX: 0, mouseY: 0 };
   private playerId: string = '';
   private hoverNodeId: string | null = null;
@@ -60,6 +61,10 @@ export class InputHandler {
 
   setOnCreateLink(callback: (fromNodeId: string, toNodeId: string) => void) {
     this.onCreateLink = callback;
+  }
+
+  setOnClickNode(callback: (nodeId: string) => void) {
+    this.onClickNode = callback;
   }
 
   private updateValidTargets(): void {
@@ -109,6 +114,11 @@ export class InputHandler {
           mouseY: e.clientY,
         };
         this.updateValidTargets();
+        // Click-to-harvest: every click on your node sends a click event
+        this.onClickNode?.(node.id);
+      } else if (node && node.isGoldNode && node.goldEnergy > 0) {
+        // Gold nodes can be clicked even if not owned
+        this.onClickNode?.(node.id);
       } else if (node) {
         console.log('[LINK.IO Input] Clicked node not owned by us. Owner:', node.owner, 'Us:', this.playerId);
       }

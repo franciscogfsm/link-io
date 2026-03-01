@@ -5,6 +5,7 @@
 
 import { useRef, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { socketManager } from '../network/SocketManager';
 import {
   BoltIcon,
   ShieldCheckIcon,
@@ -16,6 +17,7 @@ import {
   CommandLineIcon,
   CpuChipIcon,
   ArrowRightIcon,
+  UsersIcon,
 } from '@heroicons/react/24/outline';
 
 // ─── Animated network background ───────────────────────────
@@ -209,6 +211,17 @@ function StatCounter({ value, label }: { value: string; label: string }) {
 export default function LandingPage() {
   const navigate = useNavigate();
   const [scrollY, setScrollY] = useState(0);
+  const [onlinePlayers, setOnlinePlayers] = useState(0);
+
+  useEffect(() => {
+    // Connect socket just for player count
+    const socket = socketManager.connect();
+    socket.emit('player:requestPlayerCount');
+    const unsub = socketManager.onPlayerCount((data) => {
+      setOnlinePlayers(data.players);
+    });
+    return () => { unsub(); };
+  }, []);
 
   useEffect(() => {
     document.body.style.overflow = 'auto';
@@ -279,6 +292,7 @@ export default function LandingPage() {
           </div>
 
           <div className="landing-hero-stats">
+            <StatCounter value={onlinePlayers > 0 ? String(onlinePlayers) : '--'} label="Players Online" />
             <StatCounter value="30" label="Ticks / Second" />
             <StatCounter value="<50ms" label="Latency" />
             <StatCounter value="100%" label="Browser-Based" />

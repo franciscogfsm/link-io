@@ -34,10 +34,26 @@ io.on('connection', (socket) => {
   console.log(`[LINK.IO] Player connected: ${socket.id}`);
   roomManager.handleConnection(socket);
 
+  // Send player count on request, and broadcast periodically
+  socket.on('player:requestPlayerCount', () => {
+    socket.emit('server:playerCount', {
+      players: roomManager.getPlayerCount(),
+      rooms: roomManager.getRoomCount(),
+    });
+  });
+
   socket.on('disconnect', () => {
     console.log(`[LINK.IO] Player disconnected: ${socket.id}`);
   });
 });
+
+// Broadcast player count to all connected sockets every 5 seconds
+setInterval(() => {
+  io.emit('server:playerCount', {
+    players: roomManager.getPlayerCount(),
+    rooms: roomManager.getRoomCount(),
+  });
+}, 5000);
 
 // Health check endpoint
 app.get('/health', (req, res) => {

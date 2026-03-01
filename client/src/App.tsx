@@ -1,17 +1,65 @@
 // ============================================================
 // LINK.IO Client - App Root
 // Screen routing: Menu → Game → GameOver
+// XP persistence, lobby management, queue status
 // ============================================================
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import type { Socket } from 'socket.io-client';
-import type { ServerToClientEvents, ClientToServerEvents, Player } from '../../shared/types';
+import type { ServerToClientEvents, ClientToServerEvents, Player, GameMode, LobbyInfo, PlayerProgression } from '../../shared/types';
 import { socketManager } from './network/SocketManager';
 import MenuScreen from './screens/MenuScreen';
 import GameScreen from './screens/GameScreen';
 import GameOverScreen from './screens/GameOverScreen';
 
 type Screen = 'menu' | 'game' | 'gameover';
+
+// XP / Progression helpers
+const XP_PER_LEVEL = 500;
+const LEVEL_TITLES: [number, string][] = [
+  [1, 'Newcomer'], [3, 'Node Runner'], [5, 'Link Master'],
+  [8, 'Network Architect'], [12, 'Grid Commander'], [15, 'Cyber Warlord'],
+  [20, 'Singularity'], [25, 'Digital God'], [30, 'TRANSCENDED'],
+];
+
+function loadProgression(): PlayerProgression {
+  try {
+    const data = localStorage.getItem('linkio-progression');
+    if (data) return JSON.parse(data);
+  } catch { /* ignore */ }
+  return {
+    xp: 0, level: 1, gamesPlayed: 0, totalKills: 0,
+    totalWins: 0, bestStreak: 0, longestGame: 0,
+    titles: ['Newcomer'], currentTitle: 'Newcomer',
+  };
+}
+
+function saveProgression(prog: PlayerProgression): void {
+  localStorage.setItem('linkio-progression', JSON.stringify(prog));
+}
+
+function addXP(xp: number, kills: number, won: boolean, bestStreak: number): PlayerProgression {
+  const prog = loadProgression();
+  prog.xp += xp;
+  prog.gamesPlayed++;
+  prog.totalKills += kills;
+  if (won) prog.totalWins++;
+  if (bestStreak > prog.bestStreak) prog.bestStreak = bestStreak;
+  prog.level = Math.floor(prog.xp / XP_PER_LEVEL) + 1;
+
+  // Unlock titles
+  let currentTitle = 'Newcomer';
+  for (const [threshold, title] of LEVEL_TITLES) {
+    if (prog.level >= threshold) {
+      currentTitle = title;
+      if (!prog.titles.includes(title)) prog.titles.push(title);
+    }
+  }
+  prog.currentTitle = currentTitle;
+
+  saveProgression(prog);
+  return prog;
+}
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>('menu');
@@ -20,17 +68,44 @@ export default function App() {
   const [playerId, setPlayerId] = useState('');
   const [roomCode, setRoomCode] = useState('');
   const [winner, setWinner] = useState<Player | null>(null);
+  const [winningTeam, setWinningTeam] = useState<number | undefined>(undefined);
   const [scores, setScores] = useState<Player[]>([]);
+  const [xpGained, setXpGained] = useState(0);
+  const [lobbyInfo, setLobbyInfo] = useState<LobbyInfo | null>(null);
+  const [queueStatus, setQueueStatus] = useState<{ position: number; playersNeeded: number; message: string } | null>(null);
   const socketRef = useRef<Socket<ServerToClientEvents, ClientToServerEvents> | null>(null);
   const lastNameRef = useRef('');
+  const lastModeRef = useRef<GameMode>('ffa');
 
-  const connectAndJoin = useCallback((name: string, action: 'play' | 'create' | 'join', code?: string) => {
+  const connectAndJoin = useCallback((name: string, action: 'play' | 'create' | 'join', code?: string, gameMode: GameMode = 'ffa') => {
     setError(null);
     setConnecting(true);
+    setLobbyInfo(null);
+    setQueueStatus(null);
     lastNameRef.current = name;
+    lastModeRef.current = gameMode;
 
     const socket = socketManager.connect();
     socketRef.current = socket;
+
+    // Set up lobby/queue listeners
+    socket.off('lobby:update');
+    socket.off('lobby:countdown');
+    socket.off('queue:status');
+
+    socket.on('lobby:update', (data: LobbyInfo) => {
+      setLobbyInfo(data);
+      setConnecting(false);
+    });
+
+    socket.on('lobby:countdown', (data) => {
+      // Could show countdown UI
+    });
+
+    socket.on('queue:status', (data) => {
+      setQueueStatus(data);
+      setConnecting(false);
+    });
 
     // Wait for connection
     const onConnect = () => {
@@ -41,6 +116,19 @@ export default function App() {
         setPlayerId(data.playerId);
         setRoomCode(data.roomCode);
         setConnecting(false);
+
+        // If this is a lobby (create or join with code), don't go to game yet
+        // Stay on menu so they see the lobby UI; game:started will trigger transition
+        if (action === 'create' || action === 'join') {
+          return;
+        }
+
+        // For 2v2 queue, game:started will trigger transition
+        if (action === 'play' && gameMode === 'teams') {
+          // Wait for game to start
+          return;
+        }
+
         setScreen('game');
       });
 
@@ -49,13 +137,20 @@ export default function App() {
         setConnecting(false);
       });
 
+      // Listen for game started (for lobbies and queues)
+      socket.on('game:started', () => {
+        setLobbyInfo(null);
+        setQueueStatus(null);
+        setScreen('game');
+      });
+
       // Emit join event
       if (action === 'create') {
-        socket.emit('player:createRoom', { name });
+        socket.emit('player:createRoom', { name, gameMode });
       } else if (action === 'join' && code) {
         socket.emit('player:join', { name, roomCode: code });
       } else {
-        socket.emit('player:join', { name });
+        socket.emit('player:join', { name, gameMode });
       }
     };
 
@@ -74,31 +169,54 @@ export default function App() {
     }
   }, []);
 
-  const handlePlay = useCallback((name: string) => {
-    connectAndJoin(name, 'play');
+  const handlePlay = useCallback((name: string, gameMode: GameMode) => {
+    connectAndJoin(name, 'play', undefined, gameMode);
   }, [connectAndJoin]);
 
-  const handleCreateLobby = useCallback((name: string) => {
-    connectAndJoin(name, 'create');
+  const handleCreateLobby = useCallback((name: string, gameMode: GameMode) => {
+    connectAndJoin(name, 'create', undefined, gameMode);
   }, [connectAndJoin]);
 
   const handleJoinLobby = useCallback((name: string, code: string) => {
     connectAndJoin(name, 'join', code);
   }, [connectAndJoin]);
 
-  const handleGameOver = useCallback((w: Player | null, s: Player[]) => {
+  const handleLobbySetTeam = useCallback((team: number) => {
+    socketRef.current?.emit('lobby:setTeam', { team });
+  }, []);
+
+  const handleLobbyToggleReady = useCallback(() => {
+    socketRef.current?.emit('lobby:toggleReady');
+  }, []);
+
+  const handleLobbyStartGame = useCallback(() => {
+    socketRef.current?.emit('lobby:startGame');
+  }, []);
+
+  const handleGameOver = useCallback((w: Player | null, s: Player[], team?: number, xp?: number) => {
     setWinner(w);
     setScores(s);
+    setWinningTeam(team);
+
+    // Save XP
+    const gained = xp || 50;
+    setXpGained(gained);
+    const me = s.find(p => p.id === playerId);
+    const isWinner = w?.id === playerId || (team !== undefined && me?.team === team);
+    addXP(gained, me?.killCount || 0, isWinner, me?.bestStreak || 0);
+
     setScreen('gameover');
-  }, []);
+  }, [playerId]);
 
   const handlePlayAgain = useCallback(() => {
     // Disconnect and reconnect for a fresh game
     socketManager.disconnect();
     setScreen('menu');
     setError(null);
+    setLobbyInfo(null);
+    setQueueStatus(null);
     setTimeout(() => {
-      connectAndJoin(lastNameRef.current, 'play');
+      connectAndJoin(lastNameRef.current, 'play', undefined, lastModeRef.current);
     }, 300);
   }, [connectAndJoin]);
 
@@ -106,6 +224,8 @@ export default function App() {
     socketManager.disconnect();
     setScreen('menu');
     setError(null);
+    setLobbyInfo(null);
+    setQueueStatus(null);
   }, []);
 
   return (
@@ -117,6 +237,12 @@ export default function App() {
           onJoinLobby={handleJoinLobby}
           error={error}
           connecting={connecting}
+          roomCode={roomCode}
+          lobbyInfo={lobbyInfo}
+          queueStatus={queueStatus}
+          onLobbySetTeam={handleLobbySetTeam}
+          onLobbyToggleReady={handleLobbyToggleReady}
+          onLobbyStartGame={handleLobbyStartGame}
         />
       )}
 
@@ -132,10 +258,12 @@ export default function App() {
       {screen === 'gameover' && (
         <GameOverScreen
           winner={winner}
+          winningTeam={winningTeam}
           scores={scores}
           currentPlayerId={playerId}
           onPlayAgain={handlePlayAgain}
           onMainMenu={handleMainMenu}
+          xpGained={xpGained}
         />
       )}
     </>

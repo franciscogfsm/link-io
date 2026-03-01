@@ -9,15 +9,19 @@ import type { Server, Socket } from 'socket.io';
 import type {
   GameState, GameNode, GameLink, Player,
   ClientToServerEvents, ServerToClientEvents,
-  KillFeedEntry, AbilityType
+  KillFeedEntry, AbilityType, GameMode, MapEvent, UpgradeType
 } from '../../../shared/types.js';
+import { UPGRADE_COSTS, UPGRADE_MAX_TIER, DEFAULT_UPGRADES } from '../../../shared/types.js';
 import { PhysicsEngine } from './PhysicsEngine.js';
 import { NetworkManager } from './NetworkManager.js';
 import { NodeGenerator } from './NodeGenerator.js';
 import { AntiCheat } from './AntiCheat.js';
 
-const ARENA_WIDTH = 3500;
-const ARENA_HEIGHT = 2500;
+const ARENA_BASE_WIDTH = 3500;
+const ARENA_BASE_HEIGHT = 2500;
+const ARENA_PER_PLAYER_WIDTH = 600;  // extra width per player beyond 2
+const ARENA_PER_PLAYER_HEIGHT = 400;
+const NODES_PER_PLAYER = 15;         // extra neutral nodes spawned per player
 const TICK_RATE = 30; // Increased from 20 for smoother gameplay
 const TICK_INTERVAL = 1000 / TICK_RATE;
 const GAME_DURATION = 180;
@@ -26,12 +30,38 @@ const MAX_PLAYERS = 8;
 const MIN_PLAYERS_TO_START = 2;
 const NEUTRAL_NODE_COUNT = 80;
 const COMBO_WINDOW = 3;
-const COMBO_BONUS_BASE = 5;
+const COMBO_BONUS_BASE = 3;
+
+// Click mechanics
+const CLICK_STREAK_WINDOW = 1.0;     // seconds to keep click streak alive
+const CLICK_BASE_ENERGY = 1;         // base energy per click (nerfed from 3)
+const CLICK_STREAK_BONUS = 0.5;      // extra energy per streak level (nerfed from 1.5)
+const CLICK_STREAK_CAP = 10;         // max streak level for bonus calculation
+const CLICK_COOLDOWN = 0.15;         // min seconds between clicks (anti-macro)
+const GOLD_NODE_SPAWN_INTERVAL = 30; // seconds between gold node spawns
+const GOLD_NODE_LIFETIME = 6;        // seconds before gold node despawns
 
 // Respawn system
 const RESPAWN_TIME = 5; // seconds to respawn
 const RESPAWN_INVULN_TIME = 3; // seconds of invulnerability after respawn
 const RESPAWN_ENERGY = 60; // energy on respawn
+
+// Health system
+const PLAYER_MAX_HEALTH = 100;
+const CORE_DAMAGE_PER_SECOND = 20;  // damage per link touching enemy core per second
+const HEALTH_REGEN_RATE = 2;         // HP/s regen when not taking damage
+const DAMAGE_COOLDOWN = 4;           // seconds before regen starts
+// Movement system — energy cost, mass-based, links break if overstretched
+const MOVE_BASE_SPEED = 200;         // px/s base speed (with 0 nodes)
+const MOVE_MASS_PENALTY = 0.08;      // speed multiplier lost per owned node
+const MOVE_ENERGY_COST = 8;          // energy/s while moving
+const MOVE_ACCELERATION = 6;         // how fast you reach max speed (higher = snappier)
+const MOVE_FRICTION = 4;             // how fast you stop
+const LINK_STRETCH_DISTANCE = 420;   // links start warning at this distance
+const LINK_BREAK_DISTANCE = 500;     // links snap at this distance
+
+// Core protection — attacker must own a node within this range of the core to link to it
+const CORE_PROXIMITY_REQUIRED = 400;
 
 // Kill streak thresholds and labels
 const STREAK_LABELS: [number, string][] = [
@@ -75,16 +105,31 @@ export class GameRoom {
   private lastTick: number = Date.now();
   private sockets = new Map<string, Socket<ClientToServerEvents, ServerToClientEvents>>();
   private startTimeout: ReturnType<typeof setTimeout> | null = null;
-  private lastStateHash = ''; // For delta compression
-  private colorAssignments = new Map<string, string>(); // persistent color per player id
+  private lastStateHash = '';
+  private colorAssignments = new Map<string, string>();
+  private gameMode: GameMode = 'ffa';
+  private nextTeam = 1;
+  private eventTimer = 0;
+  private eventInterval = 25; // seconds between events
+  private activeEvents: MapEvent[] = [];
+  private playerMoveInputs = new Map<string, { x: number; y: number }>();
+  private playerVelocities = new Map<string, { x: number; y: number }>();
+  private lastClickTime = new Map<string, number>();
+  private goldNodeTimer = 0;
+  private currentArenaWidth: number;
+  private currentArenaHeight: number;
+  private lastPlayerCount = 0;
 
-  constructor(io: Server<ClientToServerEvents, ServerToClientEvents>, code: string) {
+  constructor(io: Server<ClientToServerEvents, ServerToClientEvents>, code: string, gameMode: GameMode = 'ffa') {
     this.id = uuidv4();
     this.code = code;
     this.io = io;
-    this.physics = new PhysicsEngine(ARENA_WIDTH, ARENA_HEIGHT);
+    this.gameMode = gameMode;
+    this.currentArenaWidth = ARENA_BASE_WIDTH;
+    this.currentArenaHeight = ARENA_BASE_HEIGHT;
+    this.physics = new PhysicsEngine(this.currentArenaWidth, this.currentArenaHeight);
     this.network = new NetworkManager();
-    this.nodeGen = new NodeGenerator(ARENA_WIDTH, ARENA_HEIGHT);
+    this.nodeGen = new NodeGenerator(this.currentArenaWidth, this.currentArenaHeight);
     this.antiCheat = new AntiCheat();
 
     const neutralNodes = this.nodeGen.generateInitialNodes(NEUTRAL_NODE_COUNT);
@@ -97,8 +142,12 @@ export class GameRoom {
       timeRemaining: GAME_DURATION,
       gamePhase: 'waiting',
       winner: null,
-      arenaWidth: ARENA_WIDTH,
-      arenaHeight: ARENA_HEIGHT,
+      arenaWidth: this.currentArenaWidth,
+      arenaHeight: this.currentArenaHeight,
+      gameMode,
+      teamScores: [0, 0, 0, 0, 0],
+      mapEvents: [],
+      nextEventIn: this.eventInterval,
     };
   }
 
@@ -107,7 +156,7 @@ export class GameRoom {
   get gamePhase(): string { return this.state.gamePhase; }
   get isFull(): boolean { return this.state.players.length >= MAX_PLAYERS; }
 
-  addPlayer(socket: Socket<ClientToServerEvents, ServerToClientEvents>, name: string): Player | null {
+  addPlayer(socket: Socket<ClientToServerEvents, ServerToClientEvents>, name: string, forcedTeam?: number): Player | null {
     if (this.isFull || this.state.gamePhase === 'ended') return null;
 
     // Assign persistent color
@@ -122,11 +171,24 @@ export class GameRoom {
     const coreNode = this.nodeGen.createNode(spawnPos, true, socket.id);
     this.state.nodes.push(coreNode);
 
+    // Assign team in team mode
+    let team = 0;
+    if (this.gameMode === 'teams') {
+      if (forcedTeam !== undefined && forcedTeam > 0) {
+        team = forcedTeam;
+      } else {
+        team = this.nextTeam;
+        this.nextTeam = this.nextTeam === 1 ? 2 : 1;
+      }
+    }
+
     const player: Player = {
       id: socket.id,
       name: name || `Player ${this.state.players.length + 1}`,
       color,
       energy: INITIAL_ENERGY,
+      health: PLAYER_MAX_HEALTH,
+      maxHealth: PLAYER_MAX_HEALTH,
       coreNodeId: coreNode.id,
       nodeCount: 1,
       linkCount: 0,
@@ -139,9 +201,20 @@ export class GameRoom {
       respawnTimer: 0,
       invulnTimer: 0,
       lastKilledBy: null,
+      lastDamagedBy: null,
       combo: 0,
       comboTimer: 0,
       abilityCooldowns: { surge: 0, shield: 0, emp: 0 },
+      team,
+      assists: 0,
+      nodesStolen: 0,
+      longestChain: 0,
+      totalEnergyGenerated: 0,
+      upgrades: { ...DEFAULT_UPGRADES },
+      clickStreak: 0,
+      clickStreakTimer: 0,
+      bestClickStreak: 0,
+      totalClicks: 0,
     };
 
     this.state.players.push(player);
@@ -150,6 +223,9 @@ export class GameRoom {
 
     socket.join(this.id);
     this.io.to(this.id).emit('room:playerJoined', { player });
+
+    // Scale arena for player count
+    this.scaleArena();
 
     if (this.state.players.length >= MIN_PLAYERS_TO_START && this.state.gamePhase === 'waiting') {
       if (this.startTimeout) clearTimeout(this.startTimeout);
@@ -179,6 +255,9 @@ export class GameRoom {
     this.state.players.splice(playerIndex, 1);
     this.sockets.delete(socketId);
     this.colorAssignments.delete(socketId);
+    this.playerMoveInputs.delete(socketId);
+    this.playerVelocities.delete(socketId);
+    this.lastClickTime.delete(socketId);
     this.antiCheat.cleanup(socketId);
     this.io.to(this.id).emit('room:playerLeft', { playerId: socketId });
 
@@ -219,7 +298,7 @@ export class GameRoom {
     );
     const victimPosition = coreNode
       ? { x: coreNode.position.x, y: coreNode.position.y }
-      : { x: ARENA_WIDTH / 2, y: ARENA_HEIGHT / 2 };
+      : { x: this.currentArenaWidth / 2, y: this.currentArenaHeight / 2 };
 
     victim.alive = false;
     victim.deaths++;
@@ -270,7 +349,7 @@ export class GameRoom {
         eliminationScore += 100; // revenge bonus
       }
       killer.score += eliminationScore;
-      killer.energy += 30; // energy reward for kill
+      killer.energy += 15; // energy reward for kill (nerfed from 30)
 
       // Kill feed
       let action = 'ELIMINATED';
@@ -317,12 +396,17 @@ export class GameRoom {
     player.alive = true;
     player.coreNodeId = newCore.id;
     player.energy = RESPAWN_ENERGY;
+    player.health = PLAYER_MAX_HEALTH;
     player.respawnTimer = 0;
     player.invulnTimer = RESPAWN_INVULN_TIME;
     player.killStreak = 0; // reset streak on death
     player.nodeCount = 1;
     player.linkCount = 0;
+    player.lastDamagedBy = null;
     player.abilityCooldowns = { surge: 0, shield: 0, emp: 0 };
+
+    // Team: assign same team
+    // (team stays the same across respawns)
 
     this.io.to(this.id).emit('game:playerRespawned', {
       playerId: player.id,
@@ -463,12 +547,36 @@ export class GameRoom {
         return;
       }
 
+      // CORE PROTECTION — can't link to enemy core unless you own a nearby node
+      const toNode = this.state.nodes.find((n: GameNode) => n.id === data.toNodeId);
+      if (toNode && toNode.isCore && toNode.owner && toNode.owner !== player.id) {
+        const playerNodes = this.state.nodes.filter((n: GameNode) => n.owner === player.id && !n.isCore);
+        const hasProximity = playerNodes.some((n: GameNode) => {
+          const dx = n.position.x - toNode.position.x;
+          const dy = n.position.y - toNode.position.y;
+          return Math.sqrt(dx * dx + dy * dy) < CORE_PROXIMITY_REQUIRED;
+        });
+        if (!hasProximity) {
+          socket.emit('game:error', { message: 'Must own a node near enemy core first! Expand your network.' });
+          return;
+        }
+      }
+
+      // Apply reach upgrade to link distance
+      const reachBonus = 1 + [0, 0.15, 0.30, 0.50][player.upgrades.reach];
+
       const link = this.network.createLink(
         data.fromNodeId, data.toNodeId, player.id,
-        this.state.nodes, this.state.links, player
+        this.state.nodes, this.state.links, player,
+        reachBonus
       );
 
       if (link) {
+        // Apply toughLinks upgrade — boost link HP
+        const hpBonus = 1 + [0, 0.30, 0.60, 1.0][player.upgrades.toughLinks];
+        link.maxHealth *= hpBonus;
+        link.health *= hpBonus;
+
         this.state.links.push(link);
         this.io.to(this.id).emit('game:linkCreated', link);
 
@@ -526,6 +634,31 @@ export class GameRoom {
       this.handleAbility(player, data.ability);
     });
 
+    socket.on('game:upgrade', (data: { upgrade: UpgradeType }) => {
+      if (this.state.gamePhase !== 'playing' || !player.alive) return;
+      const upgradeType = data.upgrade;
+      const currentTier = player.upgrades[upgradeType];
+      if (currentTier >= UPGRADE_MAX_TIER) {
+        socket.emit('game:error', { message: `${upgradeType.toUpperCase()} already maxed!` });
+        return;
+      }
+      const cost = UPGRADE_COSTS[upgradeType][currentTier];
+      if (player.energy < cost) {
+        socket.emit('game:error', { message: `Need ${cost} energy! (have ${Math.floor(player.energy)})` });
+        return;
+      }
+      player.energy -= cost;
+      player.upgrades[upgradeType] = currentTier + 1;
+      player.score += 30 * (currentTier + 1);
+
+      this.io.to(this.id).emit('game:upgraded', {
+        playerId: player.id,
+        upgrade: upgradeType,
+        tier: currentTier + 1,
+      });
+      console.log(`[LINK.IO] ⬆ ${player.name} upgraded ${upgradeType} to tier ${currentTier + 1}`);
+    });
+
     socket.on('game:emote', (data: { emote: string }) => {
       if (this.state.gamePhase !== 'playing') return;
       const coreNode = this.state.nodes.find(
@@ -540,9 +673,142 @@ export class GameRoom {
       }
     });
 
+    socket.on('game:move', (data: { direction: { x: number; y: number } }) => {
+      if (this.state.gamePhase !== 'playing' || !player.alive) return;
+      // Normalize direction vector
+      const dx = data.direction.x;
+      const dy = data.direction.y;
+      const len = Math.sqrt(dx * dx + dy * dy);
+      if (len > 0) {
+        this.playerMoveInputs.set(socket.id, { x: dx / len, y: dy / len });
+      } else {
+        this.playerMoveInputs.delete(socket.id);
+      }
+    });
+
     socket.on('game:claimNode', () => {
       // Claiming handled through link creation
     });
+
+    // ============ CLICK NODE — spam clicks on your nodes for energy ============
+    socket.on('game:clickNode', (data: { nodeId: string }) => {
+      if (this.state.gamePhase !== 'playing' || !player.alive) return;
+
+      // Anti-macro: enforce minimum click interval
+      const now = Date.now();
+      const lastClick = this.lastClickTime.get(player.id) || 0;
+      if (now - lastClick < CLICK_COOLDOWN * 1000) return;
+      this.lastClickTime.set(player.id, now);
+
+      const node = this.state.nodes.find((n: GameNode) => n.id === data.nodeId);
+      if (!node) return;
+
+      // Must own the node OR it must be a gold node near your network
+      const isOwned = node.owner === player.id;
+      const isGold = node.isGoldNode && node.goldEnergy > 0;
+
+      if (!isOwned && !isGold) return;
+
+      // For gold nodes: must have a node nearby (within 400px)
+      if (isGold && !isOwned) {
+        const hasNearby = this.state.nodes.some((n: GameNode) =>
+          n.owner === player.id &&
+          Math.sqrt((n.position.x - node.position.x) ** 2 + (n.position.y - node.position.y) ** 2) < 400
+        );
+        if (!hasNearby) return;
+      }
+
+      // Update click streak
+      player.totalClicks++;
+      if (player.clickStreakTimer > 0) {
+        player.clickStreak++;
+      } else {
+        player.clickStreak = 1;
+      }
+      player.clickStreakTimer = CLICK_STREAK_WINDOW;
+      if (player.clickStreak > player.bestClickStreak) {
+        player.bestClickStreak = player.clickStreak;
+      }
+
+      // Calculate energy reward (capped streak)
+      const effectiveStreak = Math.min(player.clickStreak, CLICK_STREAK_CAP);
+      let energy = CLICK_BASE_ENERGY + effectiveStreak * CLICK_STREAK_BONUS;
+
+      // Gold nodes give bonus energy (nerfed)
+      if (isGold) {
+        const goldReward = Math.min(3 + Math.min(effectiveStreak, 5), node.goldEnergy);
+        node.goldEnergy -= goldReward;
+        energy += goldReward;
+
+        // Gold node depleted
+        if (node.goldEnergy <= 0) {
+          node.isGoldNode = false;
+          node.goldEnergy = 0;
+        }
+      }
+
+      // Power nodes give bonus clicks
+      if (node.isPowerNode) energy *= 1.5;
+      if (node.isMegaNode) energy *= 2;
+
+      player.energy += energy;
+      player.score += Math.floor(energy * 0.5);
+
+      // Build the streak message
+      let message = `+${Math.floor(energy)}⚡`;
+      if (player.clickStreak >= 5) message += ` 🔥x${player.clickStreak}`;
+      if (player.clickStreak >= 10) message = `⚡ CLICK FRENZY x${player.clickStreak}! +${Math.floor(energy)}`;
+      if (player.clickStreak >= 20) message = `💥 CLICK MADNESS x${player.clickStreak}! +${Math.floor(energy)}`;
+      if (isGold) message += ' 💰';
+
+      socket.emit('game:clickReward', {
+        playerId: player.id,
+        nodeId: data.nodeId,
+        energy: Math.floor(energy),
+        streak: player.clickStreak,
+        message,
+      });
+    });
+  }
+
+  /** Dynamically scale the arena based on player count */
+  private scaleArena(): void {
+    const playerCount = this.state.players.length;
+    if (playerCount === this.lastPlayerCount) return;
+    this.lastPlayerCount = playerCount;
+
+    const extraPlayers = Math.max(0, playerCount - 2);
+    const newWidth = ARENA_BASE_WIDTH + extraPlayers * ARENA_PER_PLAYER_WIDTH;
+    const newHeight = ARENA_BASE_HEIGHT + extraPlayers * ARENA_PER_PLAYER_HEIGHT;
+
+    if (newWidth !== this.currentArenaWidth || newHeight !== this.currentArenaHeight) {
+      const oldWidth = this.currentArenaWidth;
+      const oldHeight = this.currentArenaHeight;
+      this.currentArenaWidth = newWidth;
+      this.currentArenaHeight = newHeight;
+
+      // Update physics and node generator bounds
+      this.physics.arenaWidth = newWidth;
+      this.physics.arenaHeight = newHeight;
+      this.nodeGen.arenaWidth = newWidth;
+      this.nodeGen.arenaHeight = newHeight;
+      this.state.arenaWidth = newWidth;
+      this.state.arenaHeight = newHeight;
+
+      // Spawn extra nodes in the new area
+      if (newWidth > oldWidth || newHeight > oldHeight) {
+        const extraNodes = NODES_PER_PLAYER * Math.max(1, extraPlayers);
+        const currentNeutralCount = this.state.nodes.filter(n => !n.owner && !n.isCore).length;
+        const targetCount = NEUTRAL_NODE_COUNT + extraPlayers * NODES_PER_PLAYER;
+        const needed = Math.max(0, targetCount - currentNeutralCount);
+        if (needed > 0) {
+          const newNodes = this.nodeGen.generateExtraNodes(needed, this.state.nodes);
+          this.state.nodes.push(...newNodes);
+        }
+      }
+
+      console.log(`[LINK.IO] 🗺 Arena scaled to ${newWidth}x${newHeight} for ${playerCount} players (+${Math.max(0, this.state.nodes.length - NEUTRAL_NODE_COUNT)} extra nodes)`);
+    }
   }
 
   private startGame(): void {
@@ -624,12 +890,193 @@ export class GameRoom {
         }
       }
 
-      // Score ticks based on territory
-      player.score += player.nodeCount * 0.5 * deltaTime;
+      // Score ticks based on territory (more dynamic!)
+      const territoryScore = player.nodeCount * 0.5 + player.linkCount * 0.3;
+      player.score += territoryScore * deltaTime;
+
+      // Longest chain tracking
+      const chain = this.calculateLongestChain(player.id);
+      if (chain > player.longestChain) {
+        player.longestChain = chain;
+        if (chain >= 8) player.score += 50; // chain milestone bonus
+      }
+
+      // Comeback mechanic: players with fewer nodes get energy boost
+      if (player.nodeCount <= 3 && player.alive) {
+        const alivePlayers = this.state.players.filter(p => p.alive);
+        const avgNodes = alivePlayers.reduce((s, p) => s + p.nodeCount, 0) / Math.max(alivePlayers.length, 1);
+        if (player.nodeCount < avgNodes * 0.5) {
+          // Underdog boost: faster energy regen (nerfed from 2)
+          player.energy += 1 * deltaTime;
+        }
+      }
+
+      // Click streak decay
+      if (player.clickStreakTimer > 0) {
+        player.clickStreakTimer -= deltaTime;
+        if (player.clickStreakTimer <= 0) {
+          player.clickStreak = 0;
+          player.clickStreakTimer = 0;
+        }
+      }
+
+      // Regen upgrade — boost health regen
+      if (player.alive && player.upgrades.regen > 0) {
+        const regenBonus = [0, 0.5, 1.0, 2.0][player.upgrades.regen];
+        // Only regen if not actively being damaged (checked later, but apply passive bonus here)
+        if (player.health < player.maxHealth) {
+          player.health = Math.min(player.maxHealth, player.health + regenBonus * deltaTime);
+        }
+      }
+
+      // Magnet upgrade — auto-claim nearby unowned nodes
+      if (player.alive && player.upgrades.magnet > 0) {
+        const magnetRange = [0, 150, 250, 400][player.upgrades.magnet];
+        const playerNodes = this.state.nodes.filter((n: GameNode) => n.owner === player.id);
+        for (const owned of playerNodes) {
+          for (const node of this.state.nodes) {
+            if (node.owner || node.isCore) continue;
+            const dx = node.position.x - owned.position.x;
+            const dy = node.position.y - owned.position.y;
+            if (Math.sqrt(dx * dx + dy * dy) < magnetRange) {
+              node.owner = player.id;
+              // Auto-link if possible
+              const link = this.network.createLink(
+                owned.id, node.id, player.id,
+                this.state.nodes, this.state.links, player,
+                1 + [0, 0.15, 0.30, 0.50][player.upgrades.reach]
+              );
+              if (link) {
+                this.state.links.push(link);
+                player.score += 5;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Gold node spawning
+    this.goldNodeTimer += deltaTime;
+    if (this.goldNodeTimer >= GOLD_NODE_SPAWN_INTERVAL) {
+      this.goldNodeTimer = 0;
+      const goldNode = this.nodeGen.spawnGoldNode(this.state.nodes);
+      if (goldNode) {
+        this.state.nodes.push(goldNode);
+        console.log(`[LINK.IO] 💰 Gold node spawned at (${Math.floor(goldNode.position.x)}, ${Math.floor(goldNode.position.y)})`);
+      }
+    }
+
+    // Gold node expiry — despawn after GOLD_NODE_LIFETIME seconds
+    for (const node of this.state.nodes) {
+      if (node.isGoldNode && node.goldExpireTimer > 0) {
+        node.goldExpireTimer -= deltaTime;
+        if (node.goldExpireTimer <= 0) {
+          node.isGoldNode = false;
+          node.goldEnergy = 0;
+          node.goldExpireTimer = 0;
+        }
+      }
     }
 
     // Physics
     this.physics.update(this.state.nodes, deltaTime);
+
+    // Player WASD movement — momentum-based, costs energy, mass slows you
+    for (const player of this.state.players) {
+      if (!player.alive) continue;
+      const coreNode = this.state.nodes.find((n: GameNode) => n.id === player.coreNodeId && n.owner === player.id);
+      if (!coreNode) continue;
+
+      const input = this.playerMoveInputs.get(player.id);
+      let vel = this.playerVelocities.get(player.id) || { x: 0, y: 0 };
+
+      // Mass-based max speed: more nodes = slower
+      const massFactor = Math.max(0.15, 1 - player.nodeCount * MOVE_MASS_PENALTY);
+      const speedBonus = 1 + [0, 0.20, 0.40, 0.70][player.upgrades.speed];
+      const maxSpeed = MOVE_BASE_SPEED * massFactor * speedBonus;
+
+      if (input && (input.x !== 0 || input.y !== 0) && player.energy > 1) {
+        // Accelerate toward input direction
+        vel.x += input.x * maxSpeed * MOVE_ACCELERATION * deltaTime;
+        vel.y += input.y * maxSpeed * MOVE_ACCELERATION * deltaTime;
+
+        // Drain energy while moving (speed upgrade reduces drain)
+        const moveCostReduction = 1 - [0, 0.15, 0.25, 0.40][player.upgrades.speed];
+        player.energy -= MOVE_ENERGY_COST * moveCostReduction * deltaTime;
+        if (player.energy < 0) player.energy = 0;
+      } else {
+        // Friction deceleration
+        vel.x *= Math.max(0, 1 - MOVE_FRICTION * deltaTime);
+        vel.y *= Math.max(0, 1 - MOVE_FRICTION * deltaTime);
+      }
+
+      // Clamp to max speed
+      const speed = Math.sqrt(vel.x * vel.x + vel.y * vel.y);
+      if (speed > maxSpeed) {
+        vel.x = (vel.x / speed) * maxSpeed;
+        vel.y = (vel.y / speed) * maxSpeed;
+      }
+      // Kill tiny velocities
+      if (Math.abs(vel.x) < 0.5 && Math.abs(vel.y) < 0.5) { vel.x = 0; vel.y = 0; }
+
+      this.playerVelocities.set(player.id, vel);
+
+      // Apply velocity
+      if (vel.x !== 0 || vel.y !== 0) {
+        coreNode.position.x += vel.x * deltaTime;
+        coreNode.position.y += vel.y * deltaTime;
+
+        // Arena bounds
+        coreNode.position.x = Math.max(20, Math.min(this.currentArenaWidth - 20, coreNode.position.x));
+        coreNode.position.y = Math.max(20, Math.min(this.currentArenaHeight - 20, coreNode.position.y));
+
+        // LINK STRETCH/BREAK — links connected to this core that are too far break
+        for (let i = this.state.links.length - 1; i >= 0; i--) {
+          const link = this.state.links[i];
+          if (link.owner !== player.id) continue;
+          // Only check links connected to the core
+          if (link.fromNodeId !== coreNode.id && link.toNodeId !== coreNode.id) continue;
+
+          const otherNodeId = link.fromNodeId === coreNode.id ? link.toNodeId : link.fromNodeId;
+          const otherNode = this.state.nodes.find((n: GameNode) => n.id === otherNodeId);
+          if (!otherNode) continue;
+
+          const dx = coreNode.position.x - otherNode.position.x;
+          const dy = coreNode.position.y - otherNode.position.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          if (dist > LINK_BREAK_DISTANCE) {
+            // Snap the link
+            const broken = this.state.links.splice(i, 1)[0];
+            this.io.to(this.id).emit('game:linkDestroyed', {
+              linkId: broken.id, reason: 'overstretched'
+            });
+
+            // Check for disconnected nodes
+            const result = this.network.findDisconnectedNodes(
+              player.id, this.state.nodes, this.state.links
+            );
+            if (result.length > 0) {
+              for (const nodeId of result) {
+                const n = this.state.nodes.find((nd: GameNode) => nd.id === nodeId);
+                if (n) { n.owner = null; n.energy = 0; }
+              }
+              this.io.to(this.id).emit('game:networkCollapsed', {
+                nodeIds: result, playerId: player.id
+              });
+              this.io.to(this.id).emit('game:nodesClaimed', {
+                nodeIds: result, owner: null
+              });
+            }
+          } else if (dist > LINK_STRETCH_DISTANCE) {
+            // Damage the link proportionally when overstretched
+            const stretchRatio = (dist - LINK_STRETCH_DISTANCE) / (LINK_BREAK_DISTANCE - LINK_STRETCH_DISTANCE);
+            link.health -= link.maxHealth * stretchRatio * 0.5 * deltaTime;
+          }
+        }
+      }
+    }
 
     // Energy
     this.network.updateEnergy(
@@ -667,37 +1114,128 @@ export class GameRoom {
       }
     }
 
-    // Check eliminated players (core node lost)
-    for (const player of this.state.players) {
-      if (!player.alive) continue;
-      const coreNode = this.state.nodes.find(
-        (n: GameNode) => n.id === player.coreNodeId && n.owner === player.id
-      );
-      if (!coreNode) {
-        // Find the killer — closest active enemy with nearby links/nodes
-        let killer: Player | null = null;
-        let bestEvidence = 0;
-        for (const other of this.state.players) {
-          if (other.id === player.id || !other.alive) continue;
-          // Count evidence: links that were near player's old nodes
-          let evidence = 0;
-          const nearbyPlayerNodes = this.state.nodes.filter(
-            (n: GameNode) => n.owner === other.id
-          );
-          for (const node of nearbyPlayerNodes) {
-            // Was this node recently the player's area? Check if other player has links touching
-            const hasLinks = this.state.links.some((l: GameLink) =>
-              l.owner === other.id &&
-              (l.fromNodeId === node.id || l.toNodeId === node.id)
-            );
-            if (hasLinks) evidence++;
-          }
-          if (evidence > bestEvidence) {
-            bestEvidence = evidence;
-            killer = other;
+    // ============ CORE DAMAGE — HP SYSTEM ============
+    // Links touching an enemy's core node deal damage to that player's health
+    for (const link of this.state.links) {
+      const toNode = this.state.nodes.find((n: GameNode) => n.id === link.toNodeId);
+      const fromNode = this.state.nodes.find((n: GameNode) => n.id === link.fromNodeId);
+      if (!toNode || !fromNode) continue;
+
+      // Check if this link connects to an enemy CORE
+      let targetCore: GameNode | null = null;
+      let coreOwner: Player | null = null;
+      if (toNode.isCore && toNode.owner && toNode.owner !== link.owner) {
+        targetCore = toNode;
+        coreOwner = this.state.players.find((p: Player) => p.id === toNode.owner) || null;
+      } else if (fromNode.isCore && fromNode.owner && fromNode.owner !== link.owner) {
+        targetCore = fromNode;
+        coreOwner = this.state.players.find((p: Player) => p.id === fromNode.owner) || null;
+      }
+
+      if (targetCore && coreOwner && coreOwner.alive) {
+        // Don't damage invulnerable players
+        if (coreOwner.invulnTimer > 0) continue;
+
+        const attacker = this.state.players.find((p: Player) => p.id === link.owner);
+        if (!attacker || !attacker.alive) continue;
+
+        // Network power scaling: attacker's damage scales with their network
+        const attackerPowerTier = [0, 0.25, 0.50, 0.80][attacker.upgrades.power];
+        const networkMultiplier = 1 + (attacker.nodeCount - 1) * 0.08 + attackerPowerTier;
+        // Defender's fortify upgrade reduces damage
+        const fortifyReduction = 1 - [0, 0.20, 0.35, 0.50][coreOwner.upgrades.fortify];
+        // More links on core = more damage
+        const damage = CORE_DAMAGE_PER_SECOND * deltaTime * networkMultiplier * fortifyReduction;
+        coreOwner.health -= damage;
+        coreOwner.lastDamagedBy = attacker.id;
+
+        // THORN AURA — reflect damage back to the attacker's link
+        if (coreOwner.upgrades.thornAura > 0) {
+          const thornReflect = [0, 0.15, 0.30, 0.50][coreOwner.upgrades.thornAura];
+          link.health -= damage * thornReflect * 10; // reflected as link damage
+        }
+
+        // CORROSION — attacker's links nearby the target also take splash damage
+        if (attacker.upgrades.corrosion > 0) {
+          const splashPct = [0, 0.10, 0.20, 0.35][attacker.upgrades.corrosion];
+          for (const otherLink of this.state.links) {
+            if (otherLink.owner === attacker.id) continue;
+            if (otherLink.id === link.id) continue;
+            // Check if this enemy link is near the target core
+            const ol1 = this.state.nodes.find((n: GameNode) => n.id === otherLink.fromNodeId);
+            const ol2 = this.state.nodes.find((n: GameNode) => n.id === otherLink.toNodeId);
+            if (!ol1 || !ol2 || !targetCore) continue;
+            const midX = (ol1.position.x + ol2.position.x) / 2;
+            const midY = (ol1.position.y + ol2.position.y) / 2;
+            const cdx = midX - targetCore.position.x;
+            const cdy = midY - targetCore.position.y;
+            if (Math.sqrt(cdx * cdx + cdy * cdy) < 300) {
+              otherLink.health -= damage * splashPct * 5;
+            }
           }
         }
 
+        // Emit damage event (throttled — only emit when health changes significantly)
+        if (Math.random() < 0.3) { // ~10 times/sec at 30 TPS
+          this.io.to(this.id).emit('game:playerDamaged', {
+            playerId: coreOwner.id,
+            health: coreOwner.health,
+            maxHealth: coreOwner.maxHealth,
+            attackerId: attacker.id,
+            damage,
+          });
+        }
+      }
+    }
+
+    // Health regen — players who haven't been damaged recently
+    for (const player of this.state.players) {
+      if (!player.alive) continue;
+      // Check if any enemy links are touching this player's core
+      const isBeingAttacked = this.state.links.some((l: GameLink) => {
+        if (l.owner === player.id) return false;
+        const toNode = this.state.nodes.find((n: GameNode) => n.id === l.toNodeId);
+        const fromNode = this.state.nodes.find((n: GameNode) => n.id === l.fromNodeId);
+        return (toNode?.isCore && toNode.owner === player.id) ||
+               (fromNode?.isCore && fromNode.owner === player.id);
+      });
+      if (!isBeingAttacked && player.health < player.maxHealth) {
+        player.health = Math.min(player.maxHealth, player.health + HEALTH_REGEN_RATE * deltaTime);
+      }
+    }
+
+    // Check eliminated players (health <= 0)
+    for (const player of this.state.players) {
+      if (!player.alive) continue;
+      if (player.health <= 0) {
+        player.health = 0;
+        // Find the killer — the last player who damaged them
+        let killer: Player | null = null;
+        if (player.lastDamagedBy) {
+          killer = this.state.players.find((p: Player) => p.id === player.lastDamagedBy && p.alive) || null;
+        }
+        // Fallback: find closest active enemy with links near their core
+        if (!killer) {
+          let bestEvidence = 0;
+          for (const other of this.state.players) {
+            if (other.id === player.id || !other.alive) continue;
+            let evidence = 0;
+            const nearbyPlayerNodes = this.state.nodes.filter(
+              (n: GameNode) => n.owner === other.id
+            );
+            for (const node of nearbyPlayerNodes) {
+              const hasLinks = this.state.links.some((l: GameLink) =>
+                l.owner === other.id &&
+                (l.fromNodeId === node.id || l.toNodeId === node.id)
+              );
+              if (hasLinks) evidence++;
+            }
+            if (evidence > bestEvidence) {
+              bestEvidence = evidence;
+              killer = other;
+            }
+          }
+        }
         this.eliminatePlayer(player, killer);
       }
     }
@@ -706,8 +1244,39 @@ export class GameRoom {
     const cutoff = Date.now() - 10000;
     this.state.killFeed = this.state.killFeed.filter((e: KillFeedEntry) => e.timestamp > cutoff);
 
-    // No more "last player standing wins" — game runs until timer
-    // Winner is determined by score at the end
+    // ============ DYNAMIC MAP EVENTS ============
+    this.eventTimer += deltaTime;
+    this.state.nextEventIn = Math.max(0, this.eventInterval - this.eventTimer);
+
+    if (this.eventTimer >= this.eventInterval) {
+      this.eventTimer = 0;
+      this.spawnMapEvent();
+    }
+
+    // Update active events
+    for (let i = this.activeEvents.length - 1; i >= 0; i--) {
+      const evt = this.activeEvents[i];
+      evt.remaining -= deltaTime;
+
+      // Apply event effects
+      this.applyEventEffect(evt, deltaTime);
+
+      if (evt.remaining <= 0) {
+        this.activeEvents.splice(i, 1);
+        this.io.to(this.id).emit('game:mapEventEnded', { eventId: evt.id });
+      }
+    }
+    this.state.mapEvents = [...this.activeEvents];
+
+    // ============ TEAM SCORES ============
+    if (this.gameMode === 'teams') {
+      this.state.teamScores = [0, 0, 0, 0, 0];
+      for (const player of this.state.players) {
+        if (player.team > 0) {
+          this.state.teamScores[player.team] += Math.floor(player.score);
+        }
+      }
+    }
 
     this.io.to(this.id).emit('game:state', this.state);
   }
@@ -724,14 +1293,168 @@ export class GameRoom {
       return b.score - a.score;
     });
 
-    const winner = sortedPlayers[0] || null;
-    this.state.winner = winner?.id || null;
+    let winningTeam: number | undefined;
 
-    console.log(`[LINK.IO] 🏆 GAME ENDED! Winner: ${winner?.name}`);
+    if (this.gameMode === 'teams') {
+      // In team mode, winning team is the one with highest combined score
+      const team1Score = this.state.teamScores[1] || 0;
+      const team2Score = this.state.teamScores[2] || 0;
+      winningTeam = team1Score >= team2Score ? 1 : 2;
+      // Winner is the top scorer on the winning team
+      const teamWinner = sortedPlayers.find(p => p.team === winningTeam) || sortedPlayers[0];
+      this.state.winner = teamWinner?.id || null;
+    } else {
+      const winner = sortedPlayers[0] || null;
+      this.state.winner = winner?.id || null;
+    }
+
+    console.log(`[LINK.IO] GAME ENDED! Room ${this.code}`);
     console.log(`[LINK.IO] Scores: ${sortedPlayers.map((p: Player) => `${p.name}:${Math.floor(p.score)}`).join(', ')}`);
 
-    this.io.to(this.id).emit('game:ended', { winner, scores: sortedPlayers });
+    // Calculate XP for each player
+    for (const player of sortedPlayers) {
+      let xp = 50; // base XP for playing
+      xp += Math.floor(player.score * 0.1); // score-based XP
+      xp += player.killCount * 20; // kills
+      xp += Math.floor(player.bestStreak * 15); // streaks
+      if (this.gameMode === 'teams' && winningTeam && player.team === winningTeam) xp += 100;
+      if (sortedPlayers[0]?.id === player.id) xp += 150; // winner bonus
+
+      const socket = this.sockets.get(player.id);
+      socket?.emit('game:ended', {
+        winner: sortedPlayers[0] || null,
+        scores: sortedPlayers,
+        winningTeam,
+        xpGained: xp,
+      });
+    }
+
     this.io.to(this.id).emit('game:state', this.state);
+  }
+
+  // ============ DYNAMIC EVENTS SYSTEM ============
+
+  private spawnMapEvent(): void {
+    const types: Array<'energy_storm' | 'power_surge' | 'overcharge'> = [
+      'energy_storm', 'power_surge', 'overcharge',
+    ];
+    const type = types[Math.floor(Math.random() * types.length)];
+    const margin = 400;
+    const pos = {
+      x: margin + Math.random() * (this.currentArenaWidth - margin * 2),
+      y: margin + Math.random() * (this.currentArenaHeight - margin * 2),
+    };
+
+    const event: MapEvent = {
+      id: uuidv4(),
+      type,
+      position: pos,
+      radius: type === 'energy_storm' ? 400 : type === 'overcharge' ? 300 : 250,
+      duration: type === 'energy_storm' ? 12 : 10,
+      remaining: type === 'energy_storm' ? 12 : 10,
+      intensity: 0.5 + Math.random() * 0.5,
+    };
+
+    this.activeEvents.push(event);
+    this.io.to(this.id).emit('game:mapEvent', event);
+
+    console.log(`[LINK.IO] MAP EVENT: ${type} at (${Math.floor(pos.x)}, ${Math.floor(pos.y)})`);
+  }
+
+  private applyEventEffect(event: MapEvent, deltaTime: number): void {
+    switch (event.type) {
+      case 'energy_storm': {
+        // Nodes inside the storm generate 3x energy
+        for (const node of this.state.nodes) {
+          if (!node.owner) continue;
+          const dx = node.position.x - event.position.x;
+          const dy = node.position.y - event.position.y;
+          if (Math.sqrt(dx * dx + dy * dy) < event.radius) {
+            const player = this.state.players.find(p => p.id === node.owner);
+            if (player) {
+              player.energy += 4 * event.intensity * deltaTime;
+              player.score += 1 * deltaTime;
+            }
+          }
+        }
+        break;
+      }
+
+      case 'power_surge': {
+        // All links inside the zone deal 2x combat damage
+        for (const link of this.state.links) {
+          const fromNode = this.state.nodes.find(n => n.id === link.fromNodeId);
+          if (!fromNode) continue;
+          const dx = fromNode.position.x - event.position.x;
+          const dy = fromNode.position.y - event.position.y;
+          if (Math.sqrt(dx * dx + dy * dy) < event.radius) {
+            // Boost link health for defenders
+            if (link.owner) {
+              link.health = Math.min(link.health + 5 * deltaTime, link.maxHealth);
+            }
+          }
+        }
+        break;
+      }
+
+      case 'overcharge': {
+        // Players with nodes inside get faster cooldowns
+        for (const player of this.state.players) {
+          if (!player.alive) continue;
+          const hasNodeInZone = this.state.nodes.some(n => {
+            if (n.owner !== player.id) return false;
+            const dx = n.position.x - event.position.x;
+            const dy = n.position.y - event.position.y;
+            return Math.sqrt(dx * dx + dy * dy) < event.radius;
+          });
+          if (hasNodeInZone) {
+            for (const ab of ['surge', 'shield', 'emp'] as AbilityType[]) {
+              if (player.abilityCooldowns[ab] > 0) {
+                player.abilityCooldowns[ab] = Math.max(
+                  0,
+                  player.abilityCooldowns[ab] - deltaTime * 2 * event.intensity
+                );
+              }
+            }
+            player.score += 0.5 * deltaTime;
+          }
+        }
+        break;
+      }
+
+    }
+  }
+
+  // Calculate longest connected chain from a player's core
+  private calculateLongestChain(playerId: string): number {
+    const playerLinks = this.state.links.filter(l => l.owner === playerId);
+    const playerNodes = this.state.nodes.filter(n => n.owner === playerId);
+    const coreNode = playerNodes.find(n => n.isCore);
+    if (!coreNode || playerLinks.length === 0) return 1;
+
+    // BFS: find max depth from core
+    const visited = new Set<string>();
+    const queue: Array<{ id: string; depth: number }> = [{ id: coreNode.id, depth: 0 }];
+    visited.add(coreNode.id);
+    let maxDepth = 0;
+
+    while (queue.length > 0) {
+      const { id, depth } = queue.shift()!;
+      maxDepth = Math.max(maxDepth, depth);
+
+      const connected = playerLinks.filter(
+        l => l.fromNodeId === id || l.toNodeId === id
+      );
+      for (const link of connected) {
+        const neighborId = link.fromNodeId === id ? link.toNodeId : link.fromNodeId;
+        if (!visited.has(neighborId)) {
+          visited.add(neighborId);
+          queue.push({ id: neighborId, depth: depth + 1 });
+        }
+      }
+    }
+
+    return maxDepth + 1; // nodes, not edges
   }
 
   isEmpty(): boolean { return this.state.players.length === 0; }

@@ -42,8 +42,8 @@ const TUTORIAL_STEPS = [
   },
   {
     title: 'ABILITIES',
-    description: 'SURGE (Q): Damage nearby enemy links\nSHIELD (W): Protect your network for 5s\nEMP (E): Blast radius from your core',
-    hint: 'Abilities cost energy. Use them strategically to dominate!',
+    description: 'SURGE (Q): Damage nearby enemy links\nSHIELD (R): Protect your network for 5s\nEMP (E): Blast radius from your core\nWASD: Move your core (costs energy, stretches links!)',
+    hint: 'Moving costs energy and big networks are SLOWER. Run too far and links SNAP!',
     icon: '[PWR]',
   },
   {

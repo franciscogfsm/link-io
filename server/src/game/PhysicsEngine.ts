@@ -6,8 +6,8 @@
 import type { GameNode } from '../../../shared/types.js';
 
 export class PhysicsEngine {
-  private arenaWidth: number;
-  private arenaHeight: number;
+  arenaWidth: number;
+  arenaHeight: number;
   private boundaryMargin = 100;
   private boundaryForce = 0.5;
   private separationDistance = 80;

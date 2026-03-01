@@ -1,24 +1,77 @@
 // ============================================================
 // LINK.IO Client - Menu Screen
-// Premium landing page, clipboard copy, no emojis
+// Premium landing page, clipboard copy, player count, XP
 // ============================================================
 
 import { useState, useRef, useEffect } from 'react';
+import { socketManager } from '../network/SocketManager';
+import type { GameMode, LobbyInfo, PlayerProgression, XP_PER_LEVEL, LEVEL_TITLES } from '../../../shared/types';
+
+// Local XP functions
+const XP_PER_LEVEL_VAL = 500;
+const LEVEL_TITLES_ARR: [number, string][] = [
+  [1, 'Newcomer'], [3, 'Node Runner'], [5, 'Link Master'],
+  [8, 'Network Architect'], [12, 'Grid Commander'], [15, 'Cyber Warlord'],
+  [20, 'Singularity'], [25, 'Digital God'], [30, 'TRANSCENDED'],
+];
+
+function getProgression(): PlayerProgression {
+  try {
+    const data = localStorage.getItem('linkio-progression');
+    if (data) return JSON.parse(data);
+  } catch { /* ignore */ }
+  return {
+    xp: 0, level: 1, gamesPlayed: 0, totalKills: 0,
+    totalWins: 0, bestStreak: 0, longestGame: 0,
+    titles: ['Newcomer'], currentTitle: 'Newcomer',
+  };
+}
+
+function getLevelTitle(level: number): string {
+  let title = 'Newcomer';
+  for (const [threshold, t] of LEVEL_TITLES_ARR) {
+    if (level >= threshold) title = t;
+  }
+  return title;
+}
 
 interface MenuScreenProps {
-  onPlay: (name: string) => void;
-  onCreateLobby: (name: string) => void;
+  onPlay: (name: string, gameMode: GameMode) => void;
+  onCreateLobby: (name: string, gameMode: GameMode) => void;
   onJoinLobby: (name: string, code: string) => void;
   error: string | null;
   connecting: boolean;
   roomCode?: string;
+  lobbyInfo?: LobbyInfo | null;
+  queueStatus?: { position: number; playersNeeded: number; message: string } | null;
+  onLobbySetTeam?: (team: number) => void;
+  onLobbyToggleReady?: () => void;
+  onLobbyStartGame?: () => void;
 }
 
-export default function MenuScreen({ onPlay, onCreateLobby, onJoinLobby, error, connecting, roomCode }: MenuScreenProps) {
-  const [name, setName] = useState('');
+export default function MenuScreen({ onPlay, onCreateLobby, onJoinLobby, error, connecting, roomCode, lobbyInfo, queueStatus, onLobbySetTeam, onLobbyToggleReady, onLobbyStartGame }: MenuScreenProps) {
+  const [name, setName] = useState(() => localStorage.getItem('linkio-name') || '');
   const [joinCode, setJoinCode] = useState('');
+  const [gameMode, setGameMode] = useState<GameMode>('ffa');
   const [copied, setCopied] = useState(false);
+  const [onlinePlayers, setOnlinePlayers] = useState(0);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const progression = getProgression();
+
+  // Persist name
+  useEffect(() => {
+    if (name.trim()) localStorage.setItem('linkio-name', name.trim());
+  }, [name]);
+
+  // Get live player count
+  useEffect(() => {
+    const socket = socketManager.connect();
+    socket.emit('player:requestPlayerCount');
+    const unsub = socketManager.onPlayerCount((data) => {
+      setOnlinePlayers(data.players);
+    });
+    return () => { unsub(); };
+  }, []);
 
   // Animated background particles
   useEffect(() => {
@@ -137,63 +190,174 @@ export default function MenuScreen({ onPlay, onCreateLobby, onJoinLobby, error, 
         </h1>
         <p className="menu-subtitle">BUILD · CONNECT · DOMINATE</p>
 
-        <div className="menu-buttons">
-          <input
-            className="menu-input menu-name-input"
-            type="text"
-            placeholder="Enter your name..."
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            maxLength={16}
-            id="player-name-input"
-          />
-
-          <button
-            className="btn btn-primary"
-            onClick={() => onPlay(playerName)}
-            disabled={connecting}
-            id="play-button"
-          >
-            {connecting ? 'CONNECTING...' : 'PLAY'}
-          </button>
-
-          <button
-            className="btn btn-secondary"
-            onClick={() => onCreateLobby(playerName)}
-            disabled={connecting}
-            id="create-lobby-button"
-          >
-            CREATE LOBBY
-          </button>
-
-          <div className="menu-divider">
-            <span className="menu-divider-line" />
-            <span className="menu-divider-text">OR JOIN</span>
-            <span className="menu-divider-line" />
+        {/* Player count + XP bar */}
+        <div className="menu-status-bar">
+          {onlinePlayers > 0 && (
+            <div className="menu-online-count">
+              <span className="online-dot" />
+              <span>{onlinePlayers} player{onlinePlayers !== 1 ? 's' : ''} online</span>
+            </div>
+          )}
+          <div className="menu-xp-display">
+            <span className="xp-level">LVL {progression.level}</span>
+            <span className="xp-title">{progression.currentTitle}</span>
+            <div className="xp-bar">
+              <div className="xp-bar-fill" style={{ width: `${((progression.xp % XP_PER_LEVEL_VAL) / XP_PER_LEVEL_VAL) * 100}%` }} />
+            </div>
+            <span className="xp-text">{progression.xp % XP_PER_LEVEL_VAL}/{XP_PER_LEVEL_VAL} XP</span>
           </div>
+        </div>
 
-          <div className="join-row">
+        {/* Queue status */}
+        {queueStatus && (
+          <div className="menu-queue-status">
+            <div className="queue-spinner" />
+            <span className="queue-message">{queueStatus.message}</span>
+          </div>
+        )}
+
+        {/* Lobby view */}
+        {lobbyInfo && (
+          <div className="menu-lobby">
+            <div className="lobby-header">
+              <span className="lobby-title">{lobbyInfo.gameMode === 'teams' ? '2v2 TEAMS' : 'FFA'} LOBBY</span>
+              <span className="lobby-code">{lobbyInfo.code}</span>
+            </div>
+            <div className="lobby-players">
+              {lobbyInfo.gameMode === 'teams' ? (
+                <div className="lobby-teams">
+                  <div className="lobby-team lobby-team-1">
+                    <span className="team-label">TEAM 1</span>
+                    {lobbyInfo.players.filter(p => p.team === 1).map(p => (
+                      <div key={p.id} className={`lobby-player ${p.ready ? 'ready' : ''}`}>
+                        <span className="lobby-player-name">{p.name}</span>
+                        {p.ready && <span className="lobby-ready-badge">READY</span>}
+                      </div>
+                    ))}
+                    {lobbyInfo.players.filter(p => p.team === 1).length < 2 && (
+                      <div className="lobby-player-empty">Waiting...</div>
+                    )}
+                  </div>
+                  <div className="lobby-vs">VS</div>
+                  <div className="lobby-team lobby-team-2">
+                    <span className="team-label">TEAM 2</span>
+                    {lobbyInfo.players.filter(p => p.team === 2).map(p => (
+                      <div key={p.id} className={`lobby-player ${p.ready ? 'ready' : ''}`}>
+                        <span className="lobby-player-name">{p.name}</span>
+                        {p.ready && <span className="lobby-ready-badge">READY</span>}
+                      </div>
+                    ))}
+                    {lobbyInfo.players.filter(p => p.team === 2).length < 2 && (
+                      <div className="lobby-player-empty">Waiting...</div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="lobby-ffa-list">
+                  {lobbyInfo.players.map(p => (
+                    <div key={p.id} className={`lobby-player ${p.ready ? 'ready' : ''}`}>
+                      <span className="lobby-player-name">{p.name}</span>
+                      {p.ready && <span className="lobby-ready-badge">READY</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="lobby-actions">
+              {lobbyInfo.gameMode === 'teams' && onLobbySetTeam && (
+                <div className="lobby-team-buttons">
+                  <button className="btn btn-sm" onClick={() => onLobbySetTeam(1)}>Join Team 1</button>
+                  <button className="btn btn-sm" onClick={() => onLobbySetTeam(2)}>Join Team 2</button>
+                </div>
+              )}
+              {onLobbyToggleReady && (
+                <button className="btn btn-accent" onClick={onLobbyToggleReady}>
+                  TOGGLE READY
+                </button>
+              )}
+              {onLobbyStartGame && (
+                <button className="btn btn-primary" onClick={onLobbyStartGame}>
+                  START GAME
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Normal menu (only show when not in a lobby) */}
+        {!lobbyInfo && !queueStatus && (
+          <div className="menu-buttons">
             <input
-              className="menu-input"
+              className="menu-input menu-name-input"
               type="text"
-              placeholder="Room code"
-              value={joinCode}
-              onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-              maxLength={5}
-              id="join-code-input"
+              placeholder="Enter your name..."
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              maxLength={16}
+              id="player-name-input"
             />
-            <button
-              className="btn btn-accent"
-              onClick={() => onJoinLobby(playerName, joinCode)}
-              disabled={connecting || joinCode.length < 3}
-              id="join-button"
-            >
-              JOIN
-            </button>
-          </div>
 
-          {/* Room code display with clipboard copy */}
-          {roomCode && (
+            <div className="mode-toggle">
+              <button
+                className={`mode-btn ${gameMode === 'ffa' ? 'active' : ''}`}
+                onClick={() => setGameMode('ffa')}
+              >
+                FREE-FOR-ALL
+              </button>
+              <button
+                className={`mode-btn ${gameMode === 'teams' ? 'active' : ''}`}
+                onClick={() => setGameMode('teams')}
+              >
+                2v2 TEAMS
+              </button>
+            </div>
+
+            <button
+              className="btn btn-primary"
+              onClick={() => onPlay(playerName, gameMode)}
+              disabled={connecting}
+              id="play-button"
+            >
+              {connecting ? 'CONNECTING...' : gameMode === 'teams' ? 'FIND 2v2 MATCH' : 'PLAY NOW'}
+            </button>
+
+            <button
+              className="btn btn-secondary"
+              onClick={() => onCreateLobby(playerName, gameMode)}
+              disabled={connecting}
+              id="create-lobby-button"
+            >
+              {gameMode === 'teams' ? 'CREATE 2v2 LOBBY' : 'CREATE LOBBY'}
+            </button>
+
+            <div className="menu-divider">
+              <span className="menu-divider-line" />
+              <span className="menu-divider-text">OR JOIN</span>
+              <span className="menu-divider-line" />
+            </div>
+
+            <div className="join-row">
+              <input
+                className="menu-input"
+                type="text"
+                placeholder="Room code"
+                value={joinCode}
+                onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+                maxLength={5}
+                id="join-code-input"
+              />
+              <button
+                className="btn btn-accent"
+                onClick={() => onJoinLobby(playerName, joinCode)}
+                disabled={connecting || joinCode.length < 3}
+                id="join-button"
+              >
+                JOIN
+              </button>
+            </div>
+
+            {/* Room code display */}
+            {roomCode && (
             <div className="room-code-display">
               <span className="room-code-label">ROOM CODE</span>
               <div className="room-code-value" onClick={handleCopyCode} title="Click to copy">
@@ -216,7 +380,10 @@ export default function MenuScreen({ onPlay, onCreateLobby, onJoinLobby, error, 
           )}
 
           {error && <div className="menu-error">{error}</div>}
-        </div>
+          </div>
+        )}
+
+        {error && !lobbyInfo && !queueStatus && <div className="menu-error">{error}</div>}
 
         <div className="menu-footer">
           <span className="menu-footer-text">SPACE = snap camera</span>

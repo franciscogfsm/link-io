@@ -10,9 +10,9 @@ export class NetworkManager {
   private linkCostBase = 6;
   private linkCostPerDistance = 0.012;
   private maxLinkDistance = 350;
-  private baseEnergyPerNode = 2.5;
+  private baseEnergyPerNode = 1.2;     // nerfed from 2.5
   private combatDamagePerSecond = 25;
-  private networkBonusMultiplier = 0.15;
+  private networkBonusMultiplier = 0.06; // nerfed from 0.15
   private captureSpeed = 25; // % per second — 4s to capture a node
   private siphonRate = 3; // energy stolen per second per attacking link
 
@@ -22,7 +22,8 @@ export class NetworkManager {
     playerId: string,
     nodes: GameNode[],
     links: GameLink[],
-    player: Player
+    player: Player,
+    reachMultiplier: number = 1
   ): GameLink | null {
     const fromNode = nodes.find((n) => n.id === fromNodeId);
     const toNode = nodes.find((n) => n.id === toNodeId);
@@ -31,7 +32,7 @@ export class NetworkManager {
     const dx = toNode.position.x - fromNode.position.x;
     const dy = toNode.position.y - fromNode.position.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
-    if (distance > this.maxLinkDistance) return null;
+    if (distance > this.maxLinkDistance * reachMultiplier) return null;
 
     if (fromNode.owner !== playerId) return null;
 
@@ -46,7 +47,9 @@ export class NetworkManager {
     // Cost: attacking enemy nodes costs more
     const isEnemyNode = toNode.owner !== null && toNode.owner !== playerId;
     const attackMultiplier = isEnemyNode ? 1.8 : 1.0;
-    const cost = (this.linkCostBase + distance * this.linkCostPerDistance) * attackMultiplier;
+    // Efficiency upgrade reduces link cost
+    const efficiencyDiscount = 1 - [0, 0.20, 0.35, 0.50][player.upgrades.efficiency];
+    const cost = (this.linkCostBase + distance * this.linkCostPerDistance) * attackMultiplier * efficiencyDiscount;
     if (player.energy < cost) return null;
 
     player.energy -= cost;
@@ -83,23 +86,25 @@ export class NetworkManager {
       const nodeCount = ownedNodes.length;
       const linkCount = links.filter((l) => l.owner === player.id).length;
 
-      // Network bonus
+      // Network bonus  
       const networkMultiplier = 1 + (nodeCount - 1) * this.networkBonusMultiplier;
-      const territoryBonus = nodeCount >= 10 ? 3 : nodeCount >= 5 ? 1.5 : 0;
+      const territoryBonus = nodeCount >= 10 ? 1.0 : nodeCount >= 5 ? 0.4 : 0; // nerfed from 3/1.5
+      // Flow upgrade bonus (nerfed from 0.30/0.60/1.0)
+      const flowBonus = 1 + [0, 0.15, 0.30, 0.50][player.upgrades.flow];
 
       for (const node of ownedNodes) {
         if (!node.isCore) {
           const nodeMultiplier = node.isMegaNode ? 5 : node.isPowerNode ? 3 : 1;
-          const generation = (this.baseEnergyPerNode * networkMultiplier * nodeMultiplier + territoryBonus) * deltaTime;
+          const generation = (this.baseEnergyPerNode * networkMultiplier * nodeMultiplier + territoryBonus) * flowBonus * deltaTime;
           player.energy += generation;
           node.energy = Math.min(node.energy + generation * 0.5, 100);
         }
       }
 
-      // Core always generates a base amount
+      // Core always generates a base amount (nerfed from 1.5)
       const coreNode = ownedNodes.find((n) => n.isCore);
       if (coreNode) {
-        player.energy += 1.5 * deltaTime;
+        player.energy += 0.8 * deltaTime;
       }
 
       player.nodeCount = nodeCount;
@@ -134,7 +139,8 @@ export class NetworkManager {
         const enemyPlayer = players.find((p) => p.id === toNode.owner);
         const attacker = players.find((p) => p.id === link.owner);
         if (enemyPlayer && attacker && enemyPlayer.energy > 0) {
-          const siphon = Math.min(this.siphonRate * deltaTime, enemyPlayer.energy);
+          const siphonBonus = 1 + [0, 0.40, 0.80, 1.50][attacker.upgrades.siphon];
+          const siphon = Math.min(this.siphonRate * siphonBonus * deltaTime, enemyPlayer.energy);
           enemyPlayer.energy -= siphon;
           attacker.energy += siphon * 0.7; // 70% efficiency
         }

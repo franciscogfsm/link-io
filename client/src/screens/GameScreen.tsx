@@ -7,7 +7,7 @@ import { useRef, useEffect, useState, useCallback } from 'react';
 import type { Socket } from 'socket.io-client';
 import type {
   GameState, ServerToClientEvents, ClientToServerEvents,
-  Player, GameLink, KillFeedEntry, AbilityType
+  Player, GameLink, KillFeedEntry, AbilityType, UpgradeType
 } from '../../../shared/types';
 import { GameRenderer } from '../game/GameRenderer';
 import { setInvulnerablePlayers, setDeadPlayers } from '../game/GameRenderer';
@@ -18,13 +18,15 @@ import HUD from '../components/HUD';
 import Leaderboard from '../components/Leaderboard';
 import KillFeed from '../components/KillFeed';
 import Tutorial from '../components/Tutorial';
+import SettingsPanel from '../components/SettingsPanel';
 import { getPlayerColor } from '../utils/colors';
+import { audioManager } from '../game/AudioManager';
 
 interface GameScreenProps {
   socket: Socket<ServerToClientEvents, ClientToServerEvents>;
   playerId: string;
   roomCode: string;
-  onGameOver: (winner: Player | null, scores: Player[]) => void;
+  onGameOver: (winner: Player | null, scores: Player[], winningTeam?: number, xpGained?: number) => void;
 }
 
 export default function GameScreen({ socket, playerId, roomCode, onGameOver }: GameScreenProps) {
@@ -38,7 +40,9 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
   const [respawnTimer, setRespawnTimer] = useState(0);
   const [isDead, setIsDead] = useState(false);
   const [killStreakAnnouncement, setKillStreakAnnouncement] = useState<{ label: string; streak: number } | null>(null);
+  const [mapEventAnnouncement, setMapEventAnnouncement] = useState<{ name: string; type: string } | null>(null);
   const [deathInfo, setDeathInfo] = useState<{ killerName: string; isRevenge: boolean } | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
   const rendererRef = useRef<GameRenderer | null>(null);
   const cameraRef = useRef<Camera | null>(null);
   const inputRef = useRef<InputHandler | null>(null);
@@ -53,6 +57,14 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
 
   const handleUseAbility = useCallback((ability: AbilityType) => {
     socket.emit('game:useAbility', { ability });
+  }, [socket]);
+
+  const handleUpgrade = useCallback((upgrade: UpgradeType) => {
+    socket.emit('game:upgrade', { upgrade });
+  }, [socket]);
+
+  const handleClickNode = useCallback((nodeId: string) => {
+    socket.emit('game:clickNode', { nodeId });
   }, [socket]);
 
   const handleTutorialComplete = useCallback(() => {
@@ -76,12 +88,40 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
 
     input.setPlayerId(playerId);
     input.setOnCreateLink(handleCreateLink);
+    input.setOnClickNode(handleClickNode);
 
-    // Keyboard shortcuts for abilities
+    // === WASD movement tracking ===
+    const keysHeld = { w: false, a: false, s: false, d: false };
+    let lastDirX = 0;
+    let lastDirY = 0;
+
+    const emitMovement = () => {
+      let dx = 0;
+      let dy = 0;
+      if (keysHeld.a) dx -= 1;
+      if (keysHeld.d) dx += 1;
+      if (keysHeld.w) dy -= 1;
+      if (keysHeld.s) dy += 1;
+      // Only emit when direction actually changes
+      if (dx !== lastDirX || dy !== lastDirY) {
+        lastDirX = dx;
+        lastDirY = dy;
+        socket.emit('game:move', { direction: { x: dx, y: dy } });
+      }
+    };
+
+    // Keyboard shortcuts for abilities (W remapped to R since WASD is movement)
     const onKeyDown = (e: KeyboardEvent) => {
+      // WASD movement
+      if (e.key === 'w' || e.key === 'W') { keysHeld.w = true; emitMovement(); return; }
+      if (e.key === 'a' || e.key === 'A') { keysHeld.a = true; emitMovement(); return; }
+      if (e.key === 's' || e.key === 'S') { keysHeld.s = true; emitMovement(); return; }
+      if (e.key === 'd' || e.key === 'D') { keysHeld.d = true; emitMovement(); return; }
+
       if (e.key === 'q' || e.key === 'Q') handleUseAbility('surge');
-      if (e.key === 'w' || e.key === 'W') handleUseAbility('shield');
+      if (e.key === 'r' || e.key === 'R') handleUseAbility('shield');
       if (e.key === 'e' || e.key === 'E') handleUseAbility('emp');
+      if (e.key === 'Escape') setShowSettings((p) => !p);
 
       // Emotes
       if (e.key === '1') socket.emit('game:emote', { emote: '(^o^)' });
@@ -89,7 +129,16 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
       if (e.key === '3') socket.emit('game:emote', { emote: '(>_<)' });
       if (e.key === '4') socket.emit('game:emote', { emote: '(O_O)' });
     };
+
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'w' || e.key === 'W') { keysHeld.w = false; emitMovement(); }
+      if (e.key === 'a' || e.key === 'A') { keysHeld.a = false; emitMovement(); }
+      if (e.key === 's' || e.key === 'S') { keysHeld.s = false; emitMovement(); }
+      if (e.key === 'd' || e.key === 'D') { keysHeld.d = false; emitMovement(); }
+    };
+
     window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
 
     // Socket events
     socket.on('game:state', (state: GameState) => {
@@ -109,11 +158,19 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
       input.setNodes(state.nodes);
       input.setLinks(state.links.map((l) => ({ fromNodeId: l.fromNodeId, toNodeId: l.toNodeId })));
       setIsWaiting(false);
+      audioManager.init();
+      audioManager.playGameStart();
+      audioManager.startMusic();
     });
 
-    socket.on('game:ended', (data) => onGameOver(data.winner, data.scores));
+    socket.on('game:ended', (data) => {
+      audioManager.playGameEnd();
+      audioManager.stopMusic();
+      onGameOver(data.winner, data.scores, data.winningTeam, data.xpGained);
+    });
 
     socket.on('game:linkCreated', (link: GameLink) => {
+      audioManager.playLinkCreate();
       const state = stateRef.current;
       if (state) {
         const fromNode = state.nodes.find((n) => n.id === link.fromNodeId);
@@ -131,6 +188,7 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
     });
 
     socket.on('game:networkCollapsed', (data) => {
+      audioManager.playLinkDestroy();
       const state = stateRef.current;
       if (state) {
         for (const nodeId of data.nodeIds) {
@@ -150,12 +208,14 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
 
     socket.on('game:screenShake', (data) => {
       renderer.triggerScreenShake(data.intensity, data.duration);
+      audioManager.playImpact(data.intensity);
     });
 
     socket.on('game:combo', (data) => {
       if (data.playerId === playerId) {
         setComboDisplay({ combo: data.combo, bonus: data.bonusEnergy });
         setTimeout(() => setComboDisplay(null), 1500);
+        audioManager.playCombo(data.combo);
       }
       // Floating text for combo
       const state = stateRef.current;
@@ -177,6 +237,9 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
     });
 
     socket.on('game:abilityUsed', (data) => {
+      if (data.playerId === playerId) {
+        audioManager.playAbility(data.ability);
+      }
       const state = stateRef.current;
       if (state) {
         const player = state.players.find((p) => p.id === data.playerId);
@@ -217,6 +280,7 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
 
     socket.on('game:error', (data) => {
       setErrorMsg(data.message);
+      audioManager.playError();
       setTimeout(() => setErrorMsg(null), 2000);
     });
 
@@ -234,12 +298,15 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
 
       if (data.victimId === playerId) {
         setIsDead(true);
+        audioManager.playSelfDeath();
         // Find killer name
         const killer = state.players.find((p) => p.id === data.killerId);
         setDeathInfo({
           killerName: killer?.name || 'Unknown',
           isRevenge: data.isRevenge,
         });
+      } else {
+        audioManager.playElimination();
       }
 
       // Floating text for the kill
@@ -262,6 +329,7 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
         setIsDead(false);
         setDeathInfo(null);
         setRespawnTimer(0);
+        audioManager.playRespawn();
       }
       // Spawn respawn particles
       const state = stateRef.current;
@@ -279,6 +347,7 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
       if (data.playerId === playerId) {
         setKillStreakAnnouncement({ label: data.label, streak: data.streak });
         setTimeout(() => setKillStreakAnnouncement(null), 3000);
+        audioManager.playKillStreak(data.streak);
       }
       // Floating text for streak
       const state = stateRef.current;
@@ -295,6 +364,68 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
               data.streak >= 10 ? 32 : data.streak >= 7 ? 28 : 24
             );
           }
+        }
+      }
+    });
+
+    socket.on('game:mapEvent', (event) => {
+      let name = '';
+      if (event.type === 'energy_storm') name = 'ENERGY STORM';
+      if (event.type === 'power_surge') name = 'POWER SURGE';
+      if (event.type === 'overcharge') name = 'OVERCHARGE ZONE';
+
+      
+      setMapEventAnnouncement({ name, type: event.type });
+      setTimeout(() => setMapEventAnnouncement(null), 4000);
+      
+      renderer.triggerScreenShake(3, 0.5);
+      audioManager.playMapEvent();
+    });
+
+    socket.on('game:playerDamaged', (data) => {
+      if (data.playerId === playerId) {
+        // Shake on taking damage
+        renderer.triggerScreenShake(3 + (1 - data.health / data.maxHealth) * 6, 0.15);
+        audioManager.playDamage();
+      }
+      // Floating damage number at victim's core
+      const state = stateRef.current;
+      if (state) {
+        const victim = state.players.find((p) => p.id === data.playerId);
+        if (victim) {
+          const coreNode = state.nodes.find((n) => n.id === victim.coreNodeId);
+          if (coreNode) {
+            renderer.addFloatingText(
+              `-${Math.ceil(data.damage)}`,
+              coreNode.position.x + (Math.random() - 0.5) * 30,
+              coreNode.position.y - 30,
+              '#ff006e',
+              14
+            );
+          }
+        }
+      }
+    });
+
+    // Click rewards — floating text for click-spam energy
+    socket.on('game:clickReward', (data) => {
+      if (data.playerId !== playerId) return;
+      const state = stateRef.current;
+      if (!state) return;
+      const node = state.nodes.find((n) => n.id === data.nodeId);
+      if (node) {
+        const color = data.streak >= 10 ? '#ffbe0b' : data.streak >= 5 ? '#39ff14' : '#00f0ff';
+        const size = Math.min(12 + data.streak, 24);
+        renderer.addFloatingText(
+          data.message,
+          node.position.x + (Math.random() - 0.5) * 40,
+          node.position.y - 20 - Math.random() * 20,
+          color,
+          size
+        );
+        // Tiny screen pop for satisfying feedback
+        if (data.streak >= 5) {
+          renderer.triggerScreenShake(1 + data.streak * 0.2, 0.05);
         }
       }
     });
@@ -345,6 +476,9 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
     return () => {
       cancelAnimationFrame(animRef.current);
       window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      // Stop movement on cleanup
+      socket.emit('game:move', { direction: { x: 0, y: 0 } });
       socket.off('game:state');
       socket.off('game:started');
       socket.off('game:ended');
@@ -359,8 +493,10 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
       socket.off('game:playerEliminated');
       socket.off('game:playerRespawned');
       socket.off('game:killStreak');
+      socket.off('game:playerDamaged');
+      socket.off('game:clickReward');
     };
-  }, [socket, playerId, handleCreateLink, handleUseAbility, onGameOver]);
+  }, [socket, playerId, handleCreateLink, handleClickNode, handleUseAbility, onGameOver]);
 
   const currentPlayer = gameState?.players.find((p) => p.id === playerId);
 
@@ -382,11 +518,17 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
             state={gameState}
             roomCode={roomCode}
             onUseAbility={handleUseAbility}
+            onUpgrade={handleUpgrade}
             isDead={isDead}
             respawnTimer={respawnTimer}
           />
           <div className="hud-right">
-            <Leaderboard players={gameState.players} currentPlayerId={playerId} />
+            <Leaderboard 
+              players={gameState.players} 
+              currentPlayerId={playerId} 
+              gameMode={gameState.gameMode}
+              teamScores={gameState.teamScores}
+            />
             <KillFeed entries={killFeed} />
           </div>
         </div>
@@ -425,6 +567,13 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
         </div>
       )}
 
+      {/* Map Event Announcement */}
+      {mapEventAnnouncement && (
+        <div className="event-announcement">
+          <div className="event-title">WARNING: {mapEventAnnouncement.name}</div>
+        </div>
+      )}
+
       {errorMsg && (
         <div className="game-error-toast">{errorMsg}</div>
       )}
@@ -453,9 +602,21 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
       {/* Controls hint */}
       {!showTutorial && !isWaiting && !isDead && (
         <div className="emote-hint">
-          [1-4] Emotes | [Q] Surge [W] Shield [E] EMP | [SPACE] Snap camera | Right-click Pan
+          [1-4] Emotes | [Q] Surge [R] Shield [E] EMP | [WASD] Move (costs energy!) | [ESC] Settings
         </div>
       )}
+
+      {/* Settings gear button */}
+      <button
+        className="settings-gear-btn"
+        onClick={() => setShowSettings(true)}
+        title="Settings"
+      >
+        ⚙
+      </button>
+
+      {/* Settings Panel */}
+      <SettingsPanel isOpen={showSettings} onClose={() => setShowSettings(false)} />
     </div>
   );
 }

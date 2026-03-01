@@ -8,8 +8,8 @@ import { v4 as uuidv4 } from 'uuid';
 import type { GameNode, Vec2 } from '../../../shared/types.js';
 
 export class NodeGenerator {
-  private arenaWidth: number;
-  private arenaHeight: number;
+  arenaWidth: number;
+  arenaHeight: number;
   private minDistance = 90;
 
   constructor(arenaWidth: number, arenaHeight: number) {
@@ -38,11 +38,12 @@ export class NodeGenerator {
       });
 
       if (!tooClose) {
-        // 12% chance of power node, 3% chance of mega node
+        // 12% chance of power node, 3% chance of mega node, 5% gold node
         const roll = Math.random();
         const isPowerNode = roll < 0.12;
         const isMegaNode = roll >= 0.12 && roll < 0.15;
-        nodes.push(this.createNode(pos, false, null, isPowerNode, isMegaNode));
+        const isGoldNode = roll >= 0.15 && roll < 0.20;
+        nodes.push(this.createNode(pos, false, null, isPowerNode, isMegaNode, isGoldNode));
       }
     }
 
@@ -54,7 +55,8 @@ export class NodeGenerator {
     isCore = false,
     owner: string | null = null,
     isPowerNode = false,
-    isMegaNode = false
+    isMegaNode = false,
+    isGoldNode = false
   ): GameNode {
     return {
       id: uuidv4(),
@@ -65,14 +67,65 @@ export class NodeGenerator {
       },
       owner,
       energy: isCore ? 50 : 0,
-      radius: isCore ? 18 : isMegaNode ? 16 : isPowerNode ? 14 : 10 + Math.random() * 6,
+      radius: isCore ? 18 : isMegaNode ? 16 : isPowerNode ? 14 : isGoldNode ? 12 : 10 + Math.random() * 6,
       isCore,
       isPowerNode,
       isMegaNode,
+      isGoldNode,
+      goldEnergy: isGoldNode ? 15 + Math.floor(Math.random() * 16) : 0,
+      goldExpireTimer: isGoldNode ? 6 : 0,
       driftPhase: Math.random() * Math.PI * 2,
       driftSpeed: 0.2 + Math.random() * 0.5,
       driftAmplitude: 8 + Math.random() * 15,
     };
+  }
+
+  /** Spawn a single gold node at a random position */
+  spawnGoldNode(existingNodes: GameNode[]): GameNode | null {
+    for (let i = 0; i < 50; i++) {
+      const margin = 200;
+      const pos: Vec2 = {
+        x: margin + Math.random() * (this.arenaWidth - margin * 2),
+        y: margin + Math.random() * (this.arenaHeight - margin * 2),
+      };
+      const tooClose = existingNodes.some((n) => {
+        const dx = n.position.x - pos.x;
+        const dy = n.position.y - pos.y;
+        return Math.sqrt(dx * dx + dy * dy) < this.minDistance;
+      });
+      if (!tooClose) {
+        return this.createNode(pos, false, null, false, false, true);
+      }
+    }
+    return null;
+  }
+
+  /** Generate additional neutral nodes to fill an expanded arena */
+  generateExtraNodes(count: number, existingNodes: GameNode[]): GameNode[] {
+    const nodes: GameNode[] = [];
+    let attempts = 0;
+    while (nodes.length < count && attempts < count * 20) {
+      attempts++;
+      const margin = 150;
+      const pos: Vec2 = {
+        x: margin + Math.random() * (this.arenaWidth - margin * 2),
+        y: margin + Math.random() * (this.arenaHeight - margin * 2),
+      };
+      const allNodes = [...existingNodes, ...nodes];
+      const tooClose = allNodes.some((n) => {
+        const dx = n.position.x - pos.x;
+        const dy = n.position.y - pos.y;
+        return Math.sqrt(dx * dx + dy * dy) < this.minDistance;
+      });
+      if (!tooClose) {
+        const roll = Math.random();
+        const isPowerNode = roll < 0.12;
+        const isMegaNode = roll >= 0.12 && roll < 0.15;
+        const isGoldNode = roll >= 0.15 && roll < 0.20;
+        nodes.push(this.createNode(pos, false, null, isPowerNode, isMegaNode, isGoldNode));
+      }
+    }
+    return nodes;
   }
 
   /**
