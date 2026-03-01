@@ -11,52 +11,52 @@ interface TutorialProps {
 
 const TUTORIAL_STEPS = [
   {
-    title: '🔗 WELCOME TO LINK.IO',
+    title: 'WELCOME TO LINK.IO',
     description: 'Build energy networks. Use abilities. Crush opponents. The most DOMINANT network wins!',
     hint: 'This is a 3-minute competitive arena brawl. Let\'s learn the basics.',
-    icon: '⚡',
+    icon: '[!]',
   },
   {
-    title: '🎯 YOUR CORE NODE',
+    title: 'YOUR CORE NODE',
     description: 'The bright glowing node is YOUR CORE. It\'s the heart of your network. If it falls, you\'re eliminated!',
     hint: 'Your core generates energy. Protect it at all costs.',
-    icon: '💎',
+    icon: '[C]',
   },
   {
-    title: '🖱️ CREATE LINKS',
+    title: 'CREATE LINKS',
     description: 'Click and DRAG from your core to any nearby neutral node to create an energy link and claim territory!',
     hint: 'Left-click on your node → hold → drag to a gray node → release. Green circles show valid targets!',
-    icon: '🔗',
+    icon: '[+]',
   },
   {
-    title: '⭐ SPECIAL NODES',
-    description: 'Golden ★ nodes give 3× energy! Purple ⚡ MEGA nodes speed up your ability cooldowns!',
+    title: 'SPECIAL NODES',
+    description: 'Golden ★ nodes give 3× energy! Purple MEGA nodes speed up your ability cooldowns!',
     hint: 'Rush for power nodes early—they\'re game changers!',
-    icon: '🌟',
+    icon: '[*]',
   },
   {
-    title: '🔥 COMBO SYSTEM',
+    title: 'COMBO SYSTEM',
     description: 'Chain links quickly within 3 seconds to build COMBOS! Each combo level gives bonus energy!',
     hint: 'x3 COMBO = +15 energy, x5 = +25... Build fast, score big!',
-    icon: '🔥',
+    icon: '[MAX]',
   },
   {
-    title: '💥 ABILITIES',
-    description: '⚡ SURGE (Q): Damage nearby enemy links\n🛡️ SHIELD (W): Protect your network for 5s\n💣 EMP (E): Blast radius from your core',
+    title: 'ABILITIES',
+    description: 'SURGE (Q): Damage nearby enemy links\nSHIELD (W): Protect your network for 5s\nEMP (E): Blast radius from your core',
     hint: 'Abilities cost energy. Use them strategically to dominate!',
-    icon: '🎯',
+    icon: '[PWR]',
   },
   {
-    title: '⚔️ ATTACK & DEFEND',
+    title: 'ATTACK & DEFEND',
     description: 'Link YOUR nodes to ENEMY nodes to attack! Their links take damage and break. Shielded links are immune!',
     hint: 'Break enemy links → disconnect their nodes → steal territory!',
-    icon: '⚔️',
+    icon: '[VS]',
   },
   {
-    title: '🏆 WIN CONDITION',
+    title: 'WIN CONDITION',
     description: 'Eliminate all enemies OR have the highest SCORE when time runs out! Score = Territory + Kills + Combos!',
-    hint: 'Be aggressive! Send 😎 or 💀 emotes with 1-4 keys. Now GO DOMINATE! 🚀',
-    icon: '👑',
+    hint: 'Be aggressive! Use the 1-4 keys to activate emotes. Now GO DOMINATE!',
+    icon: '[WIN]',
   },
 ];
 
@@ -85,7 +85,7 @@ export default function Tutorial({ onComplete }: TutorialProps) {
         <div className="tutorial-icon">{current.icon}</div>
         <h2 className="tutorial-title">{current.title}</h2>
         <p className="tutorial-desc" style={{ whiteSpace: 'pre-line' }}>{current.description}</p>
-        <p className="tutorial-hint">💡 {current.hint}</p>
+        <p className="tutorial-hint">TIP: {current.hint}</p>
 
         <div className="tutorial-buttons">
           {step > 0 && (
@@ -99,7 +99,7 @@ export default function Tutorial({ onComplete }: TutorialProps) {
             </button>
           ) : (
             <button className="btn btn-accent tutorial-btn" onClick={onComplete} id="tutorial-start-button">
-              ⚡ LET'S GO!
+              LET'S GO!
             </button>
           )}
         </div>

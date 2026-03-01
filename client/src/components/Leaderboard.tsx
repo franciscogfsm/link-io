@@ -35,7 +35,7 @@ export default function Leaderboard({ players, currentPlayerId }: LeaderboardPro
           <span className="leaderboard-name">
             {player.name}
             {player.killCount > 0 && (
-              <span className="leaderboard-kills"> 💀{player.killCount}</span>
+              <span className="leaderboard-kills"> [Kills: {player.killCount}]</span>
             )}
           </span>
           <span className="leaderboard-energy">{Math.floor(player.score)}</span>

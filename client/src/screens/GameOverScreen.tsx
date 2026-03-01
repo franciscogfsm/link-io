@@ -16,11 +16,12 @@ interface GameOverScreenProps {
 export default function GameOverScreen({ winner, scores, currentPlayerId, onPlayAgain, onMainMenu }: GameOverScreenProps) {
   const isWinner = winner?.id === currentPlayerId;
   const titleClass = isWinner ? 'gameover-winner' : 'gameover-loser';
-  const titleText = isWinner ? '🏆 VICTORY' : '💀 DEFEATED';
+  const titleText = isWinner ? 'VICTORY' : 'DEFEATED';
 
   return (
-    <div className="gameover-container">
-      <h1 className={`gameover-title ${titleClass}`}>{titleText}</h1>
+    <div className="gameover-overlay">
+      <div className="gameover-container">
+        <h1 className={`gameover-title ${titleClass}`}>{titleText}</h1>
 
       {winner && (
         <p className="gameover-subtitle">
@@ -44,10 +45,10 @@ export default function GameOverScreen({ winner, scores, currentPlayerId, onPlay
               {player.id === currentPlayerId ? ' (You)' : ''}
             </span>
             <div className="gameover-score-stats">
-              <span className="gameover-score-metric">🏆{Math.floor(player.score)}</span>
-              <span className="gameover-score-metric">💀{player.killCount}</span>
-              <span className="gameover-score-metric">🔗{player.nodeCount}</span>
-              <span className="gameover-score-metric">⚡{Math.floor(player.energy)}</span>
+              <span className="gameover-score-metric">Score: {Math.floor(player.score)}</span>
+              <span className="gameover-score-metric">Kills: {player.killCount}</span>
+              <span className="gameover-score-metric">Nodes: {player.nodeCount}</span>
+              <span className="gameover-score-metric">Energy: {Math.floor(player.energy)}</span>
             </div>
           </div>
         ))}
@@ -55,11 +56,12 @@ export default function GameOverScreen({ winner, scores, currentPlayerId, onPlay
 
       <div className="gameover-buttons">
         <button className="btn btn-primary" onClick={onPlayAgain} id="play-again-button">
-          ⚡ Play Again
+          PLAY AGAIN
         </button>
         <button className="btn btn-secondary" onClick={onMainMenu} id="main-menu-button">
-          🏠 Main Menu
+          MAIN MENU
         </button>
+      </div>
       </div>
     </div>
   );

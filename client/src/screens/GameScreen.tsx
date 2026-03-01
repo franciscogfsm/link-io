@@ -79,10 +79,10 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
       if (e.key === 'e' || e.key === 'E') handleUseAbility('emp');
 
       // Emotes
-      if (e.key === '1') socket.emit('game:emote', { emote: '😎' });
-      if (e.key === '2') socket.emit('game:emote', { emote: '💀' });
-      if (e.key === '3') socket.emit('game:emote', { emote: '🔥' });
-      if (e.key === '4') socket.emit('game:emote', { emote: '😱' });
+      if (e.key === '1') socket.emit('game:emote', { emote: '(^o^)' });
+      if (e.key === '2') socket.emit('game:emote', { emote: '(x_x)' });
+      if (e.key === '3') socket.emit('game:emote', { emote: '(>_<)' });
+      if (e.key === '4') socket.emit('game:emote', { emote: '(O_O)' });
     };
     window.addEventListener('keydown', onKeyDown);
 
@@ -160,7 +160,7 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
           const coreNode = state.nodes.find((n) => n.id === player.coreNodeId);
           if (coreNode) {
             renderer.addFloatingText(
-              `COMBO x${data.combo}! +${data.bonusEnergy}⚡`,
+              `COMBO x${data.combo}! +${data.bonusEnergy}`,
               coreNode.position.x,
               coreNode.position.y - 40,
               player.color,
@@ -179,9 +179,9 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
           const coreNode = state.nodes.find((n) => n.id === player.coreNodeId);
           if (coreNode) {
             const labels: Record<AbilityType, string> = {
-              surge: '⚡ SURGE!',
-              shield: '🛡️ SHIELD!',
-              emp: '💣 EMP!',
+              surge: '[SURGE]',
+              shield: '[SHIELD]',
+              emp: '[EMP]',
             };
             renderer.addFloatingText(
               labels[data.ability],
@@ -231,7 +231,7 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
           if (coreNode) camera.followTarget(coreNode.position.x, coreNode.position.y);
         }
 
-        camera.update();
+        camera.update(dt);
         renderer.render(
           interpolatedState, playerId, input.dragState,
           input.hoveredNodeId, input.validTargets, dt
@@ -266,6 +266,13 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
     <div className="game-container">
       <canvas ref={canvasRef} className="game-canvas" id="game-canvas" />
 
+      {/* Free-look indicator */}
+      {cameraRef.current?.freeLook && (
+        <div className="freelook-indicator">
+          [ FREE LOOK ] — press SPACE to snap back
+        </div>
+      )}
+
       {gameState && (
         <div className="hud-overlay">
           <HUD
@@ -284,8 +291,8 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
       {/* Combo popup */}
       {comboDisplay && (
         <div className="combo-popup">
-          <div className="combo-number">🔥 COMBO x{comboDisplay.combo}</div>
-          <div className="combo-bonus">+{comboDisplay.bonus} ⚡</div>
+          <div className="combo-number">COMBO x{comboDisplay.combo}</div>
+          <div className="combo-bonus">+{comboDisplay.bonus}</div>
         </div>
       )}
 
@@ -305,10 +312,10 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
         <Tutorial onComplete={handleTutorialComplete} />
       )}
 
-      {/* Emote bar hint */}
+      {/* Controls hint */}
       {!showTutorial && !isWaiting && (
         <div className="emote-hint">
-          1️⃣ 2️⃣ 3️⃣ 4️⃣ = Emotes | Q W E = Abilities
+          [1] [2] [3] [4] = Emotes | [Q] [W] [E] = Abilities
         </div>
       )}
     </div>

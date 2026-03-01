@@ -3,6 +3,7 @@
 // Energy, timer, abilities, combo, score
 // ============================================================
 
+import React from 'react';
 import type { Player, GameState, AbilityType } from '../../../shared/types';
 
 interface HUDProps {
@@ -22,10 +23,42 @@ export default function HUD({ player, state, roomCode, onUseAbility }: HUDProps)
   const maxEnergy = 999;
   const energyPercent = Math.min((energy / maxEnergy) * 100, 100);
 
-  const abilities: { type: AbilityType; icon: string; label: string; cost: number; key: string }[] = [
-    { type: 'surge', icon: '⚡', label: 'SURGE', cost: 40, key: 'Q' },
-    { type: 'shield', icon: '🛡️', label: 'SHIELD', cost: 30, key: 'W' },
-    { type: 'emp', icon: '💣', label: 'EMP', cost: 60, key: 'E' },
+  const abilities: { type: AbilityType; icon: React.ReactNode; label: string; cost: number; key: string }[] = [
+    {
+      type: 'surge',
+      icon: (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+        </svg>
+      ),
+      label: 'SURGE',
+      cost: 40,
+      key: 'Q'
+    },
+    {
+      type: 'shield',
+      icon: (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+        </svg>
+      ),
+      label: 'SHIELD',
+      cost: 30,
+      key: 'W'
+    },
+    {
+      type: 'emp',
+      icon: (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="8" x2="12" y2="12"></line>
+          <line x1="12" y1="16" x2="12.01" y2="16"></line>
+        </svg>
+      ),
+      label: 'EMP',
+      cost: 60,
+      key: 'E'
+    },
   ];
 
   return (
@@ -41,7 +74,7 @@ export default function HUD({ player, state, roomCode, onUseAbility }: HUDProps)
           <div className="hud-card hud-energy">
             <div className="hud-score-row">
               <span className="hud-energy-label">Energy</span>
-              <span className="hud-score">🏆 {Math.floor(player.score)}</span>
+              <span className="hud-score">SCORE: {Math.floor(player.score)}</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <div className="hud-energy-bar">
@@ -71,7 +104,7 @@ export default function HUD({ player, state, roomCode, onUseAbility }: HUDProps)
           {/* Combo display */}
           {player.combo >= 2 && (
             <div className="hud-combo">
-              <span className="hud-combo-text">🔥 COMBO x{player.combo}</span>
+              <span className="hud-combo-text">COMBO x{player.combo}</span>
             </div>
           )}
 
