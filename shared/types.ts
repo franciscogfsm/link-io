@@ -102,7 +102,7 @@ export const UPGRADE_DESCRIPTIONS: Record<UpgradeType, string[]> = {
   power:      ['+25% link dmg', '+50% link dmg', '+80% link dmg'],
   siphon:     ['+40% siphon', '+80% siphon', '+150% siphon'],
   corrosion:  ['AoE 10% splash', 'AoE 20% splash', 'AoE 35% splash'],
-  flow:       ['+30% energy', '+60% energy', '+100% energy'],
+  flow:       ['+10% energy', '+20% energy', '+35% energy'],
   efficiency: ['-20% link cost', '-35% link cost', '-50% link cost'],
   magnet:     ['Auto-grab 150px', 'Auto-grab 250px', 'Auto-grab 400px'],
   reach:      ['+15% range', '+30% range', '+50% range'],

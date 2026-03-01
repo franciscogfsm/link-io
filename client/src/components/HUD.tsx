@@ -7,6 +7,20 @@ import React, { useState } from 'react';
 import type { Player, GameState, AbilityType, UpgradeType } from '../../../shared/types';
 import { UPGRADE_COSTS, UPGRADE_LABELS, UPGRADE_DESCRIPTIONS, UPGRADE_MAX_TIER, UPGRADE_CATEGORIES, UPGRADE_ICONS } from '../../../shared/types';
 
+const CATEGORY_COLORS: Record<string, string> = {
+  DEFENSE: '#00c8ff',
+  OFFENSE: '#ff4444',
+  ECONOMY: '#39ff14',
+  UTILITY: '#ffbe0b',
+};
+
+const CATEGORY_ICONS: Record<string, string> = {
+  DEFENSE: '🛡️',
+  OFFENSE: '⚔️',
+  ECONOMY: '⚡',
+  UTILITY: '🔧',
+};
+
 interface HUDProps {
   player: Player | undefined;
   state: GameState;
@@ -19,6 +33,7 @@ interface HUDProps {
 
 export default function HUD({ player, state, roomCode, onUseAbility, onUpgrade, isDead, respawnTimer }: HUDProps) {
   const [showUpgrades, setShowUpgrades] = useState(false);
+  const [activeTab, setActiveTab] = useState<string>('DEFENSE');
   const minutes = Math.floor(state.timeRemaining / 60);
   const seconds = Math.floor(state.timeRemaining % 60);
   const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
@@ -246,54 +261,79 @@ export default function HUD({ player, state, roomCode, onUseAbility, onUpgrade, 
             {showUpgrades ? <span className="upgrade-toggle-arrow">▼</span> : <span className="upgrade-toggle-arrow">▶</span>}
           </button>
 
-          {/* Upgrade Shop — categorized */}
+          {/* Upgrade Shop — Tabbed Design */}
           {showUpgrades && (
             <div className="upgrade-shop">
-              {Object.entries(UPGRADE_CATEGORIES).map(([category, types]) => (
-                <div key={category} className="upgrade-category">
-                  <div className="upgrade-category-label">{category}</div>
-                  <div className="upgrade-category-items">
-                    {types.map((type) => {
-                      const tier = player.upgrades[type];
-                      const maxed = tier >= UPGRADE_MAX_TIER;
-                      const cost = maxed ? 0 : UPGRADE_COSTS[type][tier];
-                      const canAfford = energy >= cost;
-                      const canBuy = !maxed && canAfford;
-                      const desc = maxed ? 'MAXED' : UPGRADE_DESCRIPTIONS[type][tier];
+              {/* Category Tabs */}
+              <div className="upgrade-tabs">
+                {Object.keys(UPGRADE_CATEGORIES).map((category) => (
+                  <button
+                    key={category}
+                    className={`upgrade-tab ${activeTab === category ? 'active' : ''}`}
+                    onClick={() => setActiveTab(category)}
+                    style={{
+                      '--tab-color': CATEGORY_COLORS[category],
+                    } as React.CSSProperties}
+                  >
+                    <span className="upgrade-tab-icon">{CATEGORY_ICONS[category]}</span>
+                    <span className="upgrade-tab-label">{category}</span>
+                  </button>
+                ))}
+              </div>
 
-                      return (
-                        <button
-                          key={type}
-                          className={`upgrade-btn ${canBuy ? 'available' : ''} ${maxed ? 'maxed' : ''}`}
-                          onClick={() => canBuy && onUpgrade(type)}
-                          disabled={!canBuy}
-                          title={`${UPGRADE_LABELS[type]}: ${desc}`}
-                        >
-                          <div className="upgrade-header">
-                            <span className="upgrade-icon-emoji">{UPGRADE_ICONS[type]}</span>
-                            <span className="upgrade-name">{UPGRADE_LABELS[type]}</span>
-                            <div className="upgrade-tiers">
-                              {Array.from({ length: UPGRADE_MAX_TIER }, (_, i) => (
-                                <span key={i} className={`upgrade-pip ${i < tier ? 'filled' : ''}`}>◆</span>
-                              ))}
-                            </div>
-                          </div>
-                          <div className="upgrade-footer">
-                            <span className="upgrade-desc">{desc}</span>
-                            {maxed ? (
-                              <span className="upgrade-maxed-label">MAX</span>
-                            ) : (
-                              <span className={`upgrade-cost ${canAfford ? '' : 'too-expensive'}`}>
-                                {cost}⚡
-                              </span>
-                            )}
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
+              {/* Active Category Content */}
+              <div className="upgrade-panel" style={{
+                '--panel-color': CATEGORY_COLORS[activeTab],
+              } as React.CSSProperties}>
+                {UPGRADE_CATEGORIES[activeTab]?.map((type) => {
+                  const tier = player.upgrades[type];
+                  const maxed = tier >= UPGRADE_MAX_TIER;
+                  const cost = maxed ? 0 : UPGRADE_COSTS[type][tier];
+                  const canAfford = energy >= cost;
+                  const canBuy = !maxed && canAfford;
+                  const desc = maxed ? 'MAXED OUT' : UPGRADE_DESCRIPTIONS[type][tier];
+
+                  return (
+                    <button
+                      key={type}
+                      className={`upgrade-card ${canBuy ? 'available' : ''} ${maxed ? 'maxed' : ''}`}
+                      onClick={() => canBuy && onUpgrade(type)}
+                      disabled={!canBuy}
+                      style={{
+                        '--card-color': CATEGORY_COLORS[activeTab],
+                      } as React.CSSProperties}
+                    >
+                      <div className="upgrade-card-left">
+                        <span className="upgrade-card-icon">{UPGRADE_ICONS[type]}</span>
+                      </div>
+                      <div className="upgrade-card-center">
+                        <div className="upgrade-card-name">{UPGRADE_LABELS[type]}</div>
+                        <div className="upgrade-card-desc">{desc}</div>
+                        <div className="upgrade-card-pips">
+                          {Array.from({ length: UPGRADE_MAX_TIER }, (_, i) => (
+                            <div
+                              key={i}
+                              className={`upgrade-card-pip ${i < tier ? 'filled' : ''}`}
+                              style={{
+                                '--pip-color': CATEGORY_COLORS[activeTab],
+                              } as React.CSSProperties}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                      <div className="upgrade-card-right">
+                        {maxed ? (
+                          <span className="upgrade-card-maxed">MAX</span>
+                        ) : (
+                          <span className={`upgrade-card-cost ${canAfford ? '' : 'expensive'}`}>
+                            {cost}⚡
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           )}
         </>

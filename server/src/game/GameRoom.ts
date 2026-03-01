@@ -44,7 +44,7 @@ const ARENA_BASE_HEIGHT = 2500;
 const ARENA_PER_PLAYER_WIDTH = 600;  // extra width per player beyond 2
 const ARENA_PER_PLAYER_HEIGHT = 400;
 const NODES_PER_PLAYER = 15;         // extra neutral nodes spawned per player
-const TICK_RATE = 30; // Increased from 20 for smoother gameplay
+const TICK_RATE = 20; // lower tick rate for better server performance
 const TICK_INTERVAL = 1000 / TICK_RATE;
 const GAME_DURATION = 180;
 const INITIAL_ENERGY = 100;
@@ -52,13 +52,13 @@ const MAX_PLAYERS = 8;
 const MIN_PLAYERS_TO_START = 2;
 const NEUTRAL_NODE_COUNT = 80;
 const COMBO_WINDOW = 3;
-const COMBO_BONUS_BASE = 3;
+const COMBO_BONUS_BASE = 2; // nerfed from 3
 
 // Click mechanics
 const CLICK_STREAK_WINDOW = 1.0;     // seconds to keep click streak alive
-const CLICK_BASE_ENERGY = 1;         // base energy per click (nerfed from 3)
-const CLICK_STREAK_BONUS = 0.5;      // extra energy per streak level (nerfed from 1.5)
-const CLICK_STREAK_CAP = 10;         // max streak level for bonus calculation
+const CLICK_BASE_ENERGY = 0.5;       // base energy per click (nerfed from 1)
+const CLICK_STREAK_BONUS = 0.25;     // extra energy per streak level (nerfed from 0.5)
+const CLICK_STREAK_CAP = 8;          // max streak level for bonus calculation
 const CLICK_COOLDOWN = 0.15;         // min seconds between clicks (anti-macro)
 const GOLD_NODE_SPAWN_INTERVAL = 30; // seconds between gold node spawns
 const GOLD_NODE_LIFETIME = 6;        // seconds before gold node despawns
@@ -71,6 +71,8 @@ const RESPAWN_ENERGY = 60; // energy on respawn
 // Health system
 const PLAYER_MAX_HEALTH = 100;
 const CORE_DAMAGE_PER_SECOND = 20;  // damage per link touching enemy core per second
+const CORE_PROXIMITY_DAMAGE = 5;    // passive damage/s when enemy nodes are near your core (no link needed)
+const CORE_PROXIMITY_DAMAGE_RANGE = 350; // range for proximity damage
 const HEALTH_REGEN_RATE = 2;         // HP/s regen when not taking damage
 const DAMAGE_COOLDOWN = 4;           // seconds before regen starts
 // Movement system — energy cost, mass-based, links break if overstretched
@@ -371,7 +373,7 @@ export class GameRoom {
         eliminationScore += 100; // revenge bonus
       }
       killer.score += eliminationScore;
-      killer.energy += 15; // energy reward for kill (nerfed from 30)
+      killer.energy += 8; // energy reward for kill (nerfed from 15)
 
       // Kill feed
       let action = 'ELIMINATED';
@@ -756,9 +758,9 @@ export class GameRoom {
       const effectiveStreak = Math.min(player.clickStreak, CLICK_STREAK_CAP);
       let energy = CLICK_BASE_ENERGY + effectiveStreak * CLICK_STREAK_BONUS;
 
-      // Gold nodes give bonus energy (nerfed)
+      // Gold nodes give bonus energy (heavily nerfed)
       if (isGold) {
-        const goldReward = Math.min(3 + Math.min(effectiveStreak, 5), node.goldEnergy);
+        const goldReward = Math.min(2 + Math.min(effectiveStreak, 3), node.goldEnergy);
         node.goldEnergy -= goldReward;
         energy += goldReward;
 
@@ -897,16 +899,17 @@ export class GameRoom {
         }
       }
 
-      // Mega nodes reduce cooldowns faster
-      const megaNodes = this.state.nodes.filter(
-        (n: GameNode) => n.owner === player.id && n.isMegaNode
-      );
-      if (megaNodes.length > 0) {
+      // Mega nodes reduce cooldowns faster (count inline, no .filter())
+      let megaNodeCount = 0;
+      for (const n of this.state.nodes) {
+        if (n.owner === player.id && n.isMegaNode) megaNodeCount++;
+      }
+      if (megaNodeCount > 0) {
         for (const ab of ['surge', 'shield', 'emp'] as AbilityType[]) {
           if (player.abilityCooldowns[ab] > 0) {
             player.abilityCooldowns[ab] = Math.max(
               0,
-              player.abilityCooldowns[ab] - deltaTime * megaNodes.length * 0.5
+              player.abilityCooldowns[ab] - deltaTime * megaNodeCount * 0.5
             );
           }
         }
@@ -951,18 +954,21 @@ export class GameRoom {
         }
       }
 
-      // Magnet upgrade — auto-claim nearby unowned nodes
+      // Magnet upgrade — auto-claim ONE nearby unowned node per tick (perf-limited)
       if (player.alive && player.upgrades.magnet > 0) {
         const magnetRange = [0, 150, 250, 400][player.upgrades.magnet];
-        const playerNodes = this.state.nodes.filter((n: GameNode) => n.owner === player.id);
-        for (const owned of playerNodes) {
+        const magnetRangeSq = magnetRange * magnetRange;
+        let claimed = false;
+        for (const owned of this.state.nodes) {
+          if (claimed) break;
+          if (owned.owner !== player.id) continue;
           for (const node of this.state.nodes) {
+            if (claimed) break;
             if (node.owner || node.isCore) continue;
             const dx = node.position.x - owned.position.x;
             const dy = node.position.y - owned.position.y;
-            if (Math.sqrt(dx * dx + dy * dy) < magnetRange) {
+            if (dx * dx + dy * dy < magnetRangeSq) {
               node.owner = player.id;
-              // Auto-link if possible
               const link = this.network.createLink(
                 owned.id, node.id, player.id,
                 this.state.nodes, this.state.links, player,
@@ -972,6 +978,7 @@ export class GameRoom {
                 this.state.links.push(link);
                 player.score += 5;
               }
+              claimed = true;
             }
           }
         }
@@ -1137,10 +1144,19 @@ export class GameRoom {
     }
 
     // ============ CORE DAMAGE — HP SYSTEM ============
+    // Build lookup maps for O(1) access (avoids repeated .find() calls)
+    const nodeMap = new Map<string, GameNode>();
+    for (const n of this.state.nodes) nodeMap.set(n.id, n);
+    const playerMap = new Map<string, Player>();
+    for (const p of this.state.players) playerMap.set(p.id, p);
+
+    // Track which cores are being attacked (for health regen check later)
+    const attackedCores = new Set<string>();
+
     // Links touching an enemy's core node deal damage to that player's health
     for (const link of this.state.links) {
-      const toNode = this.state.nodes.find((n: GameNode) => n.id === link.toNodeId);
-      const fromNode = this.state.nodes.find((n: GameNode) => n.id === link.fromNodeId);
+      const toNode = nodeMap.get(link.toNodeId);
+      const fromNode = nodeMap.get(link.fromNodeId);
       if (!toNode || !fromNode) continue;
 
       // Check if this link connects to an enemy CORE
@@ -1148,17 +1164,18 @@ export class GameRoom {
       let coreOwner: Player | null = null;
       if (toNode.isCore && toNode.owner && toNode.owner !== link.owner) {
         targetCore = toNode;
-        coreOwner = this.state.players.find((p: Player) => p.id === toNode.owner) || null;
+        coreOwner = playerMap.get(toNode.owner) || null;
       } else if (fromNode.isCore && fromNode.owner && fromNode.owner !== link.owner) {
         targetCore = fromNode;
-        coreOwner = this.state.players.find((p: Player) => p.id === fromNode.owner) || null;
+        coreOwner = playerMap.get(fromNode.owner) || null;
       }
 
       if (targetCore && coreOwner && coreOwner.alive) {
+        attackedCores.add(coreOwner.id);
         // Don't damage invulnerable players
         if (coreOwner.invulnTimer > 0) continue;
 
-        const attacker = this.state.players.find((p: Player) => p.id === link.owner);
+        const attacker = playerMap.get(link.owner);
         if (!attacker || !attacker.alive) continue;
 
         // Network power scaling: attacker's damage scales with their network
@@ -1166,7 +1183,6 @@ export class GameRoom {
         const networkMultiplier = 1 + (attacker.nodeCount - 1) * 0.08 + attackerPowerTier;
         // Defender's fortify upgrade reduces damage
         const fortifyReduction = 1 - [0, 0.20, 0.35, 0.50][coreOwner.upgrades.fortify];
-        // More links on core = more damage
         const damage = CORE_DAMAGE_PER_SECOND * deltaTime * networkMultiplier * fortifyReduction;
         coreOwner.health -= damage;
         coreOwner.lastDamagedBy = attacker.id;
@@ -1174,31 +1190,23 @@ export class GameRoom {
         // THORN AURA — reflect damage back to the attacker's link
         if (coreOwner.upgrades.thornAura > 0) {
           const thornReflect = [0, 0.15, 0.30, 0.50][coreOwner.upgrades.thornAura];
-          link.health -= damage * thornReflect * 10; // reflected as link damage
+          link.health -= damage * thornReflect * 10;
         }
 
-        // CORROSION — attacker's links nearby the target also take splash damage
+        // CORROSION — simplified: just damage all enemy links touching the target core directly
         if (attacker.upgrades.corrosion > 0) {
-          const splashPct = [0, 0.10, 0.20, 0.35][attacker.upgrades.corrosion];
+          const splashDmg = damage * [0, 0.10, 0.20, 0.35][attacker.upgrades.corrosion] * 5;
           for (const otherLink of this.state.links) {
-            if (otherLink.owner === attacker.id) continue;
-            if (otherLink.id === link.id) continue;
-            // Check if this enemy link is near the target core
-            const ol1 = this.state.nodes.find((n: GameNode) => n.id === otherLink.fromNodeId);
-            const ol2 = this.state.nodes.find((n: GameNode) => n.id === otherLink.toNodeId);
-            if (!ol1 || !ol2 || !targetCore) continue;
-            const midX = (ol1.position.x + ol2.position.x) / 2;
-            const midY = (ol1.position.y + ol2.position.y) / 2;
-            const cdx = midX - targetCore.position.x;
-            const cdy = midY - targetCore.position.y;
-            if (Math.sqrt(cdx * cdx + cdy * cdy) < 300) {
-              otherLink.health -= damage * splashPct * 5;
+            if (otherLink.owner === attacker.id || otherLink.id === link.id) continue;
+            // Only damage enemy links that also touch this core node
+            if (otherLink.fromNodeId === targetCore.id || otherLink.toNodeId === targetCore.id) {
+              otherLink.health -= splashDmg;
             }
           }
         }
 
-        // Emit damage event (throttled — only emit when health changes significantly)
-        if (Math.random() < 0.3) { // ~10 times/sec at 30 TPS
+        // Emit damage event (throttled)
+        if (Math.random() < 0.15) {
           this.io.to(this.id).emit('game:playerDamaged', {
             playerId: coreOwner.id,
             health: coreOwner.health,
@@ -1210,18 +1218,39 @@ export class GameRoom {
       }
     }
 
-    // Health regen — players who haven't been damaged recently
+    // PROXIMITY DAMAGE — enemy nodes near your core deal passive damage
+    // This prevents isolated players (no links) from being invincible
+    for (const player of this.state.players) {
+      if (!player.alive || player.invulnTimer > 0) continue;
+      const coreNode = nodeMap.get(player.coreNodeId);
+      if (!coreNode) continue;
+
+      let nearestEnemyDistSq = Infinity;
+      let nearestEnemyOwner: string | null = null;
+      for (const node of this.state.nodes) {
+        if (!node.owner || node.owner === player.id || node.isCore) continue;
+        const dx = node.position.x - coreNode.position.x;
+        const dy = node.position.y - coreNode.position.y;
+        const distSq = dx * dx + dy * dy;
+        if (distSq < nearestEnemyDistSq) {
+          nearestEnemyDistSq = distSq;
+          nearestEnemyOwner = node.owner;
+        }
+      }
+
+      if (nearestEnemyDistSq < CORE_PROXIMITY_DAMAGE_RANGE * CORE_PROXIMITY_DAMAGE_RANGE) {
+        attackedCores.add(player.id);
+        const fortifyReduction = 1 - [0, 0.20, 0.35, 0.50][player.upgrades.fortify];
+        const proximityDamage = CORE_PROXIMITY_DAMAGE * fortifyReduction * deltaTime;
+        player.health -= proximityDamage;
+        if (nearestEnemyOwner) player.lastDamagedBy = nearestEnemyOwner;
+      }
+    }
+
+    // Health regen — only if NOT being attacked (uses precomputed set)
     for (const player of this.state.players) {
       if (!player.alive) continue;
-      // Check if any enemy links are touching this player's core
-      const isBeingAttacked = this.state.links.some((l: GameLink) => {
-        if (l.owner === player.id) return false;
-        const toNode = this.state.nodes.find((n: GameNode) => n.id === l.toNodeId);
-        const fromNode = this.state.nodes.find((n: GameNode) => n.id === l.fromNodeId);
-        return (toNode?.isCore && toNode.owner === player.id) ||
-               (fromNode?.isCore && fromNode.owner === player.id);
-      });
-      if (!isBeingAttacked && player.health < player.maxHealth) {
+      if (!attackedCores.has(player.id) && player.health < player.maxHealth) {
         player.health = Math.min(player.maxHealth, player.health + HEALTH_REGEN_RATE * deltaTime);
       }
     }
