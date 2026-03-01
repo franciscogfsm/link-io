@@ -55,10 +55,10 @@ export class AntiCheat {
       return { valid: false, reason: 'Cannot link a node to itself' };
     }
 
-    // Max links per player
+    // Max links per player (raised — decay system keeps networks in check)
     const playerLinkCount = links.filter((l) => l.owner === playerId).length;
-    if (playerLinkCount > 50) {
-      return { valid: false, reason: 'Too many links' };
+    if (playerLinkCount > 80) {
+      return { valid: false, reason: 'Too many links! Old links decay — wait or trim your network.' };
     }
 
     return { valid: true };

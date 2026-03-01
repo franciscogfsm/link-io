@@ -1173,6 +1173,46 @@ export class GameRoom {
       this.io.to(this.id).emit('game:linkDestroyed', { linkId, reason: 'combat' });
     }
 
+    // Link decay — fringe links slowly lose health, core-connected links repair
+    const decayedLinkIds = this.network.updateLinkDecay(
+      this.state.links, this.state.nodes, this.state.players, deltaTime
+    );
+    for (const linkId of decayedLinkIds) {
+      const linkIdx = this.state.links.findIndex((l: GameLink) => l.id === linkId);
+      if (linkIdx !== -1) {
+        const link = this.state.links[linkIdx];
+        this.state.links.splice(linkIdx, 1);
+        this.io.to(this.id).emit('game:linkDestroyed', { linkId, reason: 'decay' });
+
+        // Check for disconnected nodes from decay
+        const disconnected = this.network.findDisconnectedNodes(
+          link.owner, this.state.nodes, this.state.links
+        );
+        if (disconnected.length > 0) {
+          const disconnectedSet = new Set(disconnected);
+          for (const nodeId of disconnected) {
+            const node = this.state.nodes.find((n: GameNode) => n.id === nodeId);
+            if (node && !node.isCore) {
+              node.owner = null;
+              node.energy = 0;
+            }
+          }
+          // Remove orphan links
+          for (let j = this.state.links.length - 1; j >= 0; j--) {
+            if (
+              this.state.links[j].owner === link.owner &&
+              (disconnectedSet.has(this.state.links[j].fromNodeId) ||
+                disconnectedSet.has(this.state.links[j].toNodeId))
+            ) {
+              this.state.links.splice(j, 1);
+            }
+          }
+          this.io.to(this.id).emit('game:networkCollapsed', { nodeIds: disconnected, playerId: link.owner });
+          this.io.to(this.id).emit('game:nodesClaimed', { nodeIds: disconnected, owner: null });
+        }
+      }
+    }
+
     for (const [playerId, nodeIds] of combatResult.collapsedNodes) {
       this.io.to(this.id).emit('game:networkCollapsed', { nodeIds, playerId });
       this.io.to(this.id).emit('game:nodesClaimed', { nodeIds, owner: null });

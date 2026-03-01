@@ -15,6 +15,10 @@ export class NetworkManager {
   private networkBonusMultiplier = 0.015;
   private captureSpeed = 20;
   private siphonRate = 0.8;
+  // Link decay/repair system
+  private linkDecayRate = 2;           // HP/s base decay for fringe links
+  private linkRepairRate = 4;          // HP/s repair for core-connected links
+  private linkDecayMinLinks = 6;       // decay only kicks in after this many links
   // Reusable maps to avoid per-tick allocations
   private _playerMap = new Map<string, Player>();
   private _nodeMap = new Map<string, GameNode>();
@@ -182,6 +186,105 @@ export class NetworkManager {
     }
 
     // Energy flow visual — removed from server, client computes locally
+  }
+
+  /**
+   * Link decay & repair: links in your core network slowly repair,
+   * while fringe/disconnected links slowly decay. Keeps networks fresh
+   * and prevents the "too many links" cap from being a hard wall.
+   */
+  updateLinkDecay(
+    links: GameLink[],
+    nodes: GameNode[],
+    players: Player[],
+    deltaTime: number
+  ): string[] {
+    const decayed: string[] = [];
+
+    // Group link counts by owner
+    const linkCounts = new Map<string, number>();
+    for (const l of links) {
+      linkCounts.set(l.owner, (linkCounts.get(l.owner) || 0) + 1);
+    }
+
+    // Build node map
+    const nodeMap = this._nodeMap;
+    // (already cleared and rebuilt by updateEnergy which runs before this)
+    if (nodeMap.size === 0) {
+      for (const n of nodes) nodeMap.set(n.id, n);
+    }
+
+    // For each player, find which nodes are connected to core (BFS)
+    const coreConnected = new Map<string, Set<string>>();
+    for (const player of players) {
+      if (!player.alive) continue;
+      const count = linkCounts.get(player.id) || 0;
+      if (count <= this.linkDecayMinLinks) continue; // no decay for small networks
+
+      // BFS from core
+      const connected = new Set<string>();
+      const coreNode = nodes.find(n => n.id === player.coreNodeId && n.owner === player.id);
+      if (!coreNode) continue;
+
+      const queue: string[] = [coreNode.id];
+      connected.add(coreNode.id);
+      while (queue.length > 0) {
+        const current = queue.pop()!;
+        for (const link of links) {
+          if (link.owner !== player.id) continue;
+          let neighbor: string | null = null;
+          if (link.fromNodeId === current) neighbor = link.toNodeId;
+          else if (link.toNodeId === current) neighbor = link.fromNodeId;
+          if (neighbor && !connected.has(neighbor)) {
+            const neighborNode = nodeMap.get(neighbor);
+            if (neighborNode && neighborNode.owner === player.id) {
+              connected.add(neighbor);
+              queue.push(neighbor);
+            }
+          }
+        }
+      }
+      coreConnected.set(player.id, connected);
+    }
+
+    for (let i = links.length - 1; i >= 0; i--) {
+      const link = links[i];
+      if (link.shielded) continue; // shielded links don't decay
+
+      const count = linkCounts.get(link.owner) || 0;
+      if (count <= this.linkDecayMinLinks) {
+        // Small network — always repair
+        if (link.health < link.maxHealth) {
+          link.health = Math.min(link.maxHealth, link.health + this.linkRepairRate * deltaTime);
+        }
+        continue;
+      }
+
+      const connected = coreConnected.get(link.owner);
+      const fromNode = nodeMap.get(link.fromNodeId);
+      const toNode = nodeMap.get(link.toNodeId);
+      const fromConnected = connected?.has(link.fromNodeId) ?? false;
+      const toConnected = connected?.has(link.toNodeId) ?? false;
+      const bothConnected = fromConnected && toConnected;
+      const eitherOwned = (fromNode?.owner === link.owner) && (toNode?.owner === link.owner);
+
+      if (bothConnected && eitherOwned) {
+        // Core-connected & both nodes owned — slow repair
+        if (link.health < link.maxHealth) {
+          link.health = Math.min(link.maxHealth, link.health + this.linkRepairRate * deltaTime);
+        }
+      } else {
+        // Fringe / enemy territory — decay faster with more links
+        const overflowFactor = Math.max(1, (count - this.linkDecayMinLinks) / 15);
+        link.health -= this.linkDecayRate * overflowFactor * deltaTime;
+      }
+
+      if (link.health <= 0) {
+        decayed.push(link.id);
+      }
+    }
+
+    return decayed;
   }
 
   handleCombat(

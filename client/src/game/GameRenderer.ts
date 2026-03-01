@@ -413,6 +413,10 @@ export class GameRenderer {
     const healthAlpha = link.health / link.maxHealth;
     const pulse = 0.7 + 0.3 * Math.sin(this.time * 3 + link.energyFlow * 10);
 
+    // Low health flicker — decaying links blink as a warning
+    const isLowHealth = healthAlpha < 0.35;
+    const flicker = isLowHealth ? 0.4 + 0.6 * Math.abs(Math.sin(this.time * 8)) : 1;
+
     // Check link stretch distance for visual warning
     const ldx = toNode.position.x - fromNode.position.x;
     const ldy = toNode.position.y - fromNode.position.y;
@@ -454,9 +458,9 @@ export class GameRenderer {
     ctx.shadowBlur = 0;
     ctx.strokeStyle = isStretched
       ? `rgba(255, ${Math.floor(50 * (1 - stretchRatio))}, ${Math.floor(50 * (1 - stretchRatio))}, ${0.9 * (0.4 + 0.6 * Math.sin(this.time * 12))})`
-      : colors.main;
-    ctx.lineWidth = isStretched ? 2.5 - stretchRatio * 1.5 : 2.5;
-    ctx.globalAlpha = healthAlpha * 0.9;
+      : isLowHealth ? '#ff006e' : colors.main;
+    ctx.lineWidth = isStretched ? 2.5 - stretchRatio * 1.5 : 1.0 + 1.5 * healthAlpha;
+    ctx.globalAlpha = healthAlpha * 0.9 * flicker;
     ctx.beginPath();
     ctx.moveTo(fromNode.position.x, fromNode.position.y);
     ctx.lineTo(toNode.position.x, toNode.position.y);
