@@ -1,6 +1,6 @@
 // ============================================================
 // LINK.IO Client - Game Over Screen
-// Winner announcement, scores, play again
+// Winner announcement with full stats
 // ============================================================
 
 import type { Player } from '../../../shared/types';
@@ -20,9 +20,7 @@ export default function GameOverScreen({ winner, scores, currentPlayerId, onPlay
 
   return (
     <div className="gameover-container">
-      <h1 className={`gameover-title ${titleClass}`}>
-        {titleText}
-      </h1>
+      <h1 className={`gameover-title ${titleClass}`}>{titleText}</h1>
 
       {winner && (
         <p className="gameover-subtitle">
@@ -32,7 +30,7 @@ export default function GameOverScreen({ winner, scores, currentPlayerId, onPlay
 
       <div className="gameover-scores">
         {scores.map((player, i) => (
-          <div key={player.id} className="gameover-score-entry">
+          <div key={player.id} className={`gameover-score-entry ${player.id === currentPlayerId ? 'self' : ''}`}>
             <span className="gameover-score-rank">#{i + 1}</span>
             <span
               className="gameover-score-color"
@@ -45,7 +43,12 @@ export default function GameOverScreen({ winner, scores, currentPlayerId, onPlay
               {player.name}
               {player.id === currentPlayerId ? ' (You)' : ''}
             </span>
-            <span className="gameover-score-energy">{Math.floor(player.energy)}</span>
+            <div className="gameover-score-stats">
+              <span className="gameover-score-metric">🏆{Math.floor(player.score)}</span>
+              <span className="gameover-score-metric">💀{player.killCount}</span>
+              <span className="gameover-score-metric">🔗{player.nodeCount}</span>
+              <span className="gameover-score-metric">⚡{Math.floor(player.energy)}</span>
+            </div>
           </div>
         ))}
       </div>

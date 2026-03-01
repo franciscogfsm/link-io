@@ -1,6 +1,6 @@
 // ============================================================
 // LINK.IO Server - Node Generator
-// Procedural floating node spawning
+// Procedural floating node spawning with special nodes
 // ============================================================
 
 import { v4 as uuidv4 } from 'uuid';
@@ -9,7 +9,7 @@ import type { GameNode, Vec2 } from '../../../shared/types.js';
 export class NodeGenerator {
   private arenaWidth: number;
   private arenaHeight: number;
-  private minDistance = 120;
+  private minDistance = 100;
 
   constructor(arenaWidth: number, arenaHeight: number) {
     this.arenaWidth = arenaWidth;
@@ -37,14 +37,24 @@ export class NodeGenerator {
       });
 
       if (!tooClose) {
-        nodes.push(this.createNode(pos));
+        // 12% chance of power node, 3% chance of mega node
+        const roll = Math.random();
+        const isPowerNode = roll < 0.12;
+        const isMegaNode = roll >= 0.12 && roll < 0.15;
+        nodes.push(this.createNode(pos, false, null, isPowerNode, isMegaNode));
       }
     }
 
     return nodes;
   }
 
-  createNode(position: Vec2, isCore = false, owner: string | null = null): GameNode {
+  createNode(
+    position: Vec2,
+    isCore = false,
+    owner: string | null = null,
+    isPowerNode = false,
+    isMegaNode = false
+  ): GameNode {
     return {
       id: uuidv4(),
       position: { ...position },
@@ -54,8 +64,10 @@ export class NodeGenerator {
       },
       owner,
       energy: isCore ? 50 : 0,
-      radius: isCore ? 18 : 10 + Math.random() * 6,
+      radius: isCore ? 18 : isMegaNode ? 16 : isPowerNode ? 14 : 10 + Math.random() * 6,
       isCore,
+      isPowerNode,
+      isMegaNode,
       driftPhase: Math.random() * Math.PI * 2,
       driftSpeed: 0.2 + Math.random() * 0.5,
       driftAmplitude: 8 + Math.random() * 15,

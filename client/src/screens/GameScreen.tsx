@@ -1,17 +1,21 @@
 // ============================================================
 // LINK.IO Client - Game Screen
-// Main game view with canvas, HUD, tutorial, and Socket.IO
+// Main game: canvas, HUD, abilities, kill feed, combos
 // ============================================================
 
 import { useRef, useEffect, useState, useCallback } from 'react';
 import type { Socket } from 'socket.io-client';
-import type { GameState, ServerToClientEvents, ClientToServerEvents, Player, GameLink } from '../../../shared/types';
+import type {
+  GameState, ServerToClientEvents, ClientToServerEvents,
+  Player, GameLink, KillFeedEntry, AbilityType
+} from '../../../shared/types';
 import { GameRenderer } from '../game/GameRenderer';
 import { Camera } from '../game/Camera';
 import { InputHandler } from '../game/InputHandler';
 import { Interpolation } from '../game/Interpolation';
 import HUD from '../components/HUD';
 import Leaderboard from '../components/Leaderboard';
+import KillFeed from '../components/KillFeed';
 import Tutorial from '../components/Tutorial';
 import { getPlayerColor } from '../utils/colors';
 
@@ -26,12 +30,10 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [isWaiting, setIsWaiting] = useState(true);
-  const [showTutorial, setShowTutorial] = useState(() => {
-    // Show tutorial only on first visit
-    const seen = localStorage.getItem('linkio-tutorial-seen');
-    return !seen;
-  });
+  const [showTutorial, setShowTutorial] = useState(() => !localStorage.getItem('linkio-tutorial-seen'));
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [killFeed, setKillFeed] = useState<KillFeedEntry[]>([]);
+  const [comboDisplay, setComboDisplay] = useState<{ combo: number; bonus: number } | null>(null);
   const rendererRef = useRef<GameRenderer | null>(null);
   const cameraRef = useRef<Camera | null>(null);
   const inputRef = useRef<InputHandler | null>(null);
@@ -41,8 +43,11 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
   const lastTimeRef = useRef<number>(0);
 
   const handleCreateLink = useCallback((fromNodeId: string, toNodeId: string) => {
-    console.log('[LINK.IO] Emitting createLink:', fromNodeId, '->', toNodeId);
     socket.emit('game:createLink', { fromNodeId, toNodeId });
+  }, [socket]);
+
+  const handleUseAbility = useCallback((ability: AbilityType) => {
+    socket.emit('game:useAbility', { ability });
   }, [socket]);
 
   const handleTutorialComplete = useCallback(() => {
@@ -67,17 +72,29 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
     input.setPlayerId(playerId);
     input.setOnCreateLink(handleCreateLink);
 
-    // Socket event handlers
+    // Keyboard shortcuts for abilities
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'q' || e.key === 'Q') handleUseAbility('surge');
+      if (e.key === 'w' || e.key === 'W') handleUseAbility('shield');
+      if (e.key === 'e' || e.key === 'E') handleUseAbility('emp');
+
+      // Emotes
+      if (e.key === '1') socket.emit('game:emote', { emote: '😎' });
+      if (e.key === '2') socket.emit('game:emote', { emote: '💀' });
+      if (e.key === '3') socket.emit('game:emote', { emote: '🔥' });
+      if (e.key === '4') socket.emit('game:emote', { emote: '😱' });
+    };
+    window.addEventListener('keydown', onKeyDown);
+
+    // Socket events
     socket.on('game:state', (state: GameState) => {
       stateRef.current = state;
       setGameState(state);
       interp.pushState(state);
       input.setNodes(state.nodes);
-      input.setLinks(state.links.map(l => ({ fromNodeId: l.fromNodeId, toNodeId: l.toNodeId })));
-
-      if (state.gamePhase === 'playing') {
-        setIsWaiting(false);
-      }
+      input.setLinks(state.links.map((l) => ({ fromNodeId: l.fromNodeId, toNodeId: l.toNodeId })));
+      if (state.gamePhase === 'playing') setIsWaiting(false);
+      if (state.killFeed) setKillFeed(state.killFeed);
     });
 
     socket.on('game:started', (state: GameState) => {
@@ -85,16 +102,13 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
       setGameState(state);
       interp.pushState(state);
       input.setNodes(state.nodes);
-      input.setLinks(state.links.map(l => ({ fromNodeId: l.fromNodeId, toNodeId: l.toNodeId })));
+      input.setLinks(state.links.map((l) => ({ fromNodeId: l.fromNodeId, toNodeId: l.toNodeId })));
       setIsWaiting(false);
     });
 
-    socket.on('game:ended', (data) => {
-      onGameOver(data.winner, data.scores);
-    });
+    socket.on('game:ended', (data) => onGameOver(data.winner, data.scores));
 
     socket.on('game:linkCreated', (link: GameLink) => {
-      console.log('[LINK.IO] Link created!', link);
       const state = stateRef.current;
       if (state) {
         const fromNode = state.nodes.find((n) => n.id === link.fromNodeId);
@@ -119,50 +133,108 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
           if (node) {
             const player = state.players.find((p) => p.id === data.playerId);
             const color = player ? getPlayerColor(player.color).main : '#ff006e';
-            renderer.particles.spawnCollapseExplosion(
-              node.position.x,
-              node.position.y,
-              color
+            renderer.particles.spawnCollapseExplosion(node.position.x, node.position.y, color);
+          }
+        }
+      }
+    });
+
+    socket.on('game:killFeed', (entry: KillFeedEntry) => {
+      setKillFeed((prev) => [...prev.slice(-7), entry]);
+    });
+
+    socket.on('game:screenShake', (data) => {
+      renderer.triggerScreenShake(data.intensity, data.duration);
+    });
+
+    socket.on('game:combo', (data) => {
+      if (data.playerId === playerId) {
+        setComboDisplay({ combo: data.combo, bonus: data.bonusEnergy });
+        setTimeout(() => setComboDisplay(null), 1500);
+      }
+      // Floating text for combo
+      const state = stateRef.current;
+      if (state) {
+        const player = state.players.find((p) => p.id === data.playerId);
+        if (player) {
+          const coreNode = state.nodes.find((n) => n.id === player.coreNodeId);
+          if (coreNode) {
+            renderer.addFloatingText(
+              `COMBO x${data.combo}! +${data.bonusEnergy}⚡`,
+              coreNode.position.x,
+              coreNode.position.y - 40,
+              player.color,
+              data.combo >= 5 ? 24 : data.combo >= 3 ? 20 : 16
             );
           }
         }
       }
     });
 
+    socket.on('game:abilityUsed', (data) => {
+      const state = stateRef.current;
+      if (state) {
+        const player = state.players.find((p) => p.id === data.playerId);
+        if (player) {
+          const coreNode = state.nodes.find((n) => n.id === player.coreNodeId);
+          if (coreNode) {
+            const labels: Record<AbilityType, string> = {
+              surge: '⚡ SURGE!',
+              shield: '🛡️ SHIELD!',
+              emp: '💣 EMP!',
+            };
+            renderer.addFloatingText(
+              labels[data.ability],
+              coreNode.position.x,
+              coreNode.position.y - 60,
+              player.color,
+              22
+            );
+            // Spawn particles at affected nodes
+            for (const nodeId of data.targetNodes) {
+              const node = state.nodes.find((n) => n.id === nodeId);
+              if (node) {
+                if (data.ability === 'emp') {
+                  renderer.particles.spawnCollapseExplosion(node.position.x, node.position.y, '#ff00ff');
+                } else if (data.ability === 'surge') {
+                  renderer.particles.spawnLinkSparkle(node.position.x, node.position.y, '#ffbe0b');
+                }
+              }
+            }
+          }
+        }
+      }
+    });
+
+    socket.on('game:emote', (data) => {
+      renderer.addEmote(data.emote, data.position);
+    });
+
     socket.on('game:error', (data) => {
-      console.warn('[LINK.IO] Game error:', data.message);
       setErrorMsg(data.message);
       setTimeout(() => setErrorMsg(null), 2000);
     });
 
-    // Game render loop
+    // Game loop
     const gameLoop = (time: number) => {
       const dt = lastTimeRef.current ? (time - lastTimeRef.current) / 1000 : 0.016;
       lastTimeRef.current = time;
 
       const state = stateRef.current;
       if (state) {
-        // Interpolate node positions
         const interpolatedNodes = interp.interpolateNodes(state.nodes);
         const interpolatedState = { ...state, nodes: interpolatedNodes };
 
-        // Follow player's core node
         const player = state.players.find((p) => p.id === playerId);
         if (player) {
           const coreNode = interpolatedNodes.find((n) => n.id === player.coreNodeId);
-          if (coreNode) {
-            camera.followTarget(coreNode.position.x, coreNode.position.y);
-          }
+          if (coreNode) camera.followTarget(coreNode.position.x, coreNode.position.y);
         }
 
         camera.update();
         renderer.render(
-          interpolatedState,
-          playerId,
-          input.dragState,
-          input.hoveredNodeId,
-          input.validTargets,
-          dt
+          interpolatedState, playerId, input.dragState,
+          input.hoveredNodeId, input.validTargets, dt
         );
       }
 
@@ -173,14 +245,20 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
 
     return () => {
       cancelAnimationFrame(animRef.current);
+      window.removeEventListener('keydown', onKeyDown);
       socket.off('game:state');
       socket.off('game:started');
       socket.off('game:ended');
       socket.off('game:linkCreated');
       socket.off('game:networkCollapsed');
+      socket.off('game:killFeed');
+      socket.off('game:screenShake');
+      socket.off('game:combo');
+      socket.off('game:abilityUsed');
+      socket.off('game:emote');
       socket.off('game:error');
     };
-  }, [socket, playerId, handleCreateLink, onGameOver]);
+  }, [socket, playerId, handleCreateLink, handleUseAbility, onGameOver]);
 
   const currentPlayer = gameState?.players.find((p) => p.id === playerId);
 
@@ -190,18 +268,29 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
 
       {gameState && (
         <div className="hud-overlay">
-          <HUD player={currentPlayer} state={gameState} roomCode={roomCode} />
+          <HUD
+            player={currentPlayer}
+            state={gameState}
+            roomCode={roomCode}
+            onUseAbility={handleUseAbility}
+          />
           <div className="hud-right">
             <Leaderboard players={gameState.players} currentPlayerId={playerId} />
+            <KillFeed entries={killFeed} />
           </div>
         </div>
       )}
 
-      {/* Error toast */}
-      {errorMsg && (
-        <div className="game-error-toast">
-          {errorMsg}
+      {/* Combo popup */}
+      {comboDisplay && (
+        <div className="combo-popup">
+          <div className="combo-number">🔥 COMBO x{comboDisplay.combo}</div>
+          <div className="combo-bonus">+{comboDisplay.bonus} ⚡</div>
         </div>
+      )}
+
+      {errorMsg && (
+        <div className="game-error-toast">{errorMsg}</div>
       )}
 
       {isWaiting && (
@@ -214,6 +303,13 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
 
       {showTutorial && !isWaiting && (
         <Tutorial onComplete={handleTutorialComplete} />
+      )}
+
+      {/* Emote bar hint */}
+      {!showTutorial && !isWaiting && (
+        <div className="emote-hint">
+          1️⃣ 2️⃣ 3️⃣ 4️⃣ = Emotes | Q W E = Abilities
+        </div>
       )}
     </div>
   );

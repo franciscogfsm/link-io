@@ -12,45 +12,51 @@ interface TutorialProps {
 const TUTORIAL_STEPS = [
   {
     title: '🔗 WELCOME TO LINK.IO',
-    description: 'Build energy networks. Crush your opponents. Last network standing wins!',
-    hint: 'This is a 3-minute arena brawl. Let\'s learn the basics.',
+    description: 'Build energy networks. Use abilities. Crush opponents. The most DOMINANT network wins!',
+    hint: 'This is a 3-minute competitive arena brawl. Let\'s learn the basics.',
     icon: '⚡',
   },
   {
     title: '🎯 YOUR CORE NODE',
-    description: 'The bright glowing node is YOUR CORE. This is your network\'s heart. If it falls, you\'re eliminated!',
+    description: 'The bright glowing node is YOUR CORE. It\'s the heart of your network. If it falls, you\'re eliminated!',
     hint: 'Your core generates energy. Protect it at all costs.',
     icon: '💎',
   },
   {
     title: '🖱️ CREATE LINKS',
-    description: 'Click and DRAG from your core node to any nearby neutral node. This creates an energy link!',
-    hint: 'Left-click on your node → hold → drag to a gray node → release. That\'s it!',
+    description: 'Click and DRAG from your core to any nearby neutral node to create an energy link and claim territory!',
+    hint: 'Left-click on your node → hold → drag to a gray node → release. Green circles show valid targets!',
     icon: '🔗',
   },
   {
-    title: '⚡ ENERGY NETWORKS',
-    description: 'Connected nodes generate energy over time. More nodes = more energy = more power!',
-    hint: 'Links cost energy to create. Build efficiently to maximize your network.',
-    icon: '🌐',
+    title: '⭐ SPECIAL NODES',
+    description: 'Golden ★ nodes give 3× energy! Purple ⚡ MEGA nodes speed up your ability cooldowns!',
+    hint: 'Rush for power nodes early—they\'re game changers!',
+    icon: '🌟',
   },
   {
-    title: '💥 ATTACK ENEMIES',
-    description: 'Connect YOUR nodes to ENEMY nodes to attack them! Enemy links take damage and eventually break.',
-    hint: 'When an enemy\'s link breaks, all downstream nodes disconnect and become neutral — grab them!',
+    title: '🔥 COMBO SYSTEM',
+    description: 'Chain links quickly within 3 seconds to build COMBOS! Each combo level gives bonus energy!',
+    hint: 'x3 COMBO = +15 energy, x5 = +25... Build fast, score big!',
+    icon: '🔥',
+  },
+  {
+    title: '💥 ABILITIES',
+    description: '⚡ SURGE (Q): Damage nearby enemy links\n🛡️ SHIELD (W): Protect your network for 5s\n💣 EMP (E): Blast radius from your core',
+    hint: 'Abilities cost energy. Use them strategically to dominate!',
+    icon: '🎯',
+  },
+  {
+    title: '⚔️ ATTACK & DEFEND',
+    description: 'Link YOUR nodes to ENEMY nodes to attack! Their links take damage and break. Shielded links are immune!',
+    hint: 'Break enemy links → disconnect their nodes → steal territory!',
     icon: '⚔️',
   },
   {
     title: '🏆 WIN CONDITION',
-    description: 'Last surviving network wins. Or, if time runs out, highest energy score takes the crown!',
-    hint: 'Be aggressive! Territory control is king. Passive play loses.',
+    description: 'Eliminate all enemies OR have the highest SCORE when time runs out! Score = Territory + Kills + Combos!',
+    hint: 'Be aggressive! Send 😎 or 💀 emotes with 1-4 keys. Now GO DOMINATE! 🚀',
     icon: '👑',
-  },
-  {
-    title: '🎮 CONTROLS',
-    description: 'Left-click + drag: Create links | Right-click + drag: Pan camera | Scroll wheel: Zoom in/out',
-    hint: 'You\'re ready! Go dominate the arena! 🚀',
-    icon: '🕹️',
   },
 ];
 
@@ -63,7 +69,6 @@ export default function Tutorial({ onComplete }: TutorialProps) {
   return (
     <div className="tutorial-overlay" id="tutorial-overlay">
       <div className="tutorial-card">
-        {/* Progress bar */}
         <div className="tutorial-progress">
           <div className="tutorial-progress-fill" style={{ width: `${progress}%` }} />
         </div>
@@ -79,43 +84,27 @@ export default function Tutorial({ onComplete }: TutorialProps) {
 
         <div className="tutorial-icon">{current.icon}</div>
         <h2 className="tutorial-title">{current.title}</h2>
-        <p className="tutorial-desc">{current.description}</p>
+        <p className="tutorial-desc" style={{ whiteSpace: 'pre-line' }}>{current.description}</p>
         <p className="tutorial-hint">💡 {current.hint}</p>
 
         <div className="tutorial-buttons">
           {step > 0 && (
-            <button
-              className="btn btn-secondary tutorial-btn"
-              onClick={() => setStep(step - 1)}
-              id="tutorial-back-button"
-            >
+            <button className="btn btn-secondary tutorial-btn" onClick={() => setStep(step - 1)} id="tutorial-back-button">
               ← Back
             </button>
           )}
           {!isLast ? (
-            <button
-              className="btn btn-primary tutorial-btn"
-              onClick={() => setStep(step + 1)}
-              id="tutorial-next-button"
-            >
+            <button className="btn btn-primary tutorial-btn" onClick={() => setStep(step + 1)} id="tutorial-next-button">
               Next →
             </button>
           ) : (
-            <button
-              className="btn btn-accent tutorial-btn"
-              onClick={onComplete}
-              id="tutorial-start-button"
-            >
+            <button className="btn btn-accent tutorial-btn" onClick={onComplete} id="tutorial-start-button">
               ⚡ LET'S GO!
             </button>
           )}
         </div>
 
-        <button
-          className="tutorial-skip"
-          onClick={onComplete}
-          id="tutorial-skip-button"
-        >
+        <button className="tutorial-skip" onClick={onComplete} id="tutorial-skip-button">
           Skip Tutorial
         </button>
       </div>

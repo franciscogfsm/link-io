@@ -66,6 +66,7 @@ export class NetworkManager {
       health: 100,
       maxHealth: 100,
       energyFlow: 0,
+      shielded: false,
     };
 
     // If connecting to enemy node, create an attacking link
@@ -99,7 +100,9 @@ export class NetworkManager {
 
       for (const node of ownedNodes) {
         if (!node.isCore) {
-          const generation = (this.baseEnergyPerNode * networkMultiplier + territoryBonus) * deltaTime;
+          // Power nodes give 3x, Mega nodes give 5x energy!
+          const nodeMultiplier = node.isMegaNode ? 5 : node.isPowerNode ? 3 : 1;
+          const generation = (this.baseEnergyPerNode * networkMultiplier * nodeMultiplier + territoryBonus) * deltaTime;
           player.energy += generation;
           node.energy = Math.min(node.energy + generation * 0.5, 100);
         }
@@ -138,7 +141,8 @@ export class NetworkManager {
       if (!toNode) continue;
 
       // If the target node is owned by someone else, damage the link
-      if (toNode.owner && toNode.owner !== link.owner) {
+      // But NOT if the link is shielded!
+      if (toNode.owner && toNode.owner !== link.owner && !link.shielded) {
         link.health -= this.combatDamagePerSecond * deltaTime;
       }
 
@@ -149,11 +153,13 @@ export class NetworkManager {
         if (otherLink.owner === link.owner) continue;
 
         // If links share a node, both take damage (war of attrition!)
+        // Shielded links are immune
         if (
-          link.fromNodeId === otherLink.toNodeId ||
+          !link.shielded &&
+          (link.fromNodeId === otherLink.toNodeId ||
           link.toNodeId === otherLink.fromNodeId ||
           link.fromNodeId === otherLink.fromNodeId ||
-          link.toNodeId === otherLink.toNodeId
+          link.toNodeId === otherLink.toNodeId)
         ) {
           link.health -= this.combatDamagePerSecond * 0.7 * deltaTime;
         }

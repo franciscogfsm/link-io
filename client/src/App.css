@@ -787,3 +787,249 @@ html, body, #root {
   from { opacity: 1; }
   to { opacity: 0; }
 }
+
+/* ==================== Abilities ==================== */
+
+.hud-abilities {
+  display: flex;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.ability-btn {
+  width: 56px;
+  height: 56px;
+  position: relative;
+  border-radius: 10px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  background: rgba(15, 15, 40, 0.9);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  overflow: hidden;
+}
+
+.ability-btn.ready {
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 15px var(--glow-cyan);
+}
+
+.ability-btn.ready:hover {
+  transform: scale(1.1);
+  box-shadow: 0 0 25px var(--glow-cyan);
+}
+
+.ability-btn.cooldown {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ability-icon {
+  font-size: 20px;
+  z-index: 2;
+}
+
+.ability-key {
+  font-family: var(--font-display);
+  font-size: 9px;
+  color: var(--text-secondary);
+  letter-spacing: 1px;
+  z-index: 2;
+}
+
+.ability-cd-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(0, 0, 0, 0.7);
+  transition: height 0.2s linear;
+  z-index: 1;
+}
+
+.ability-cd-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  z-index: 3;
+}
+
+.ability-cost {
+  position: absolute;
+  bottom: 2px;
+  right: 4px;
+  font-family: var(--font-display);
+  font-size: 8px;
+  color: var(--accent-cyan);
+  z-index: 2;
+}
+
+/* ==================== Kill Feed ==================== */
+
+.killfeed {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  pointer-events: none;
+}
+
+.killfeed-entry {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 4px 10px;
+  border-radius: 4px;
+  animation: killFeedIn 0.3s ease;
+  white-space: nowrap;
+}
+
+@keyframes killFeedIn {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.killfeed-player {
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1px;
+}
+
+.killfeed-action {
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+/* ==================== Combo ==================== */
+
+.hud-combo {
+  pointer-events: none;
+}
+
+.hud-combo-text {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  color: #ffbe0b;
+  text-shadow: 0 0 15px rgba(255, 190, 11, 0.5);
+  animation: comboPulse 0.5s ease-in-out infinite;
+}
+
+@keyframes comboPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+
+.combo-popup {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  z-index: 25;
+  pointer-events: none;
+  animation: comboPopIn 0.3s ease;
+}
+
+@keyframes comboPopIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.5);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+.combo-number {
+  font-family: var(--font-display);
+  font-size: 36px;
+  font-weight: 900;
+  color: #ffbe0b;
+  text-shadow:
+    0 0 20px rgba(255, 190, 11, 0.6),
+    0 0 40px rgba(255, 190, 11, 0.3);
+  letter-spacing: 3px;
+}
+
+.combo-bonus {
+  font-family: var(--font-display);
+  font-size: 18px;
+  color: var(--accent-green);
+  text-shadow: 0 0 15px rgba(57, 255, 20, 0.5);
+}
+
+/* ==================== HUD Score ==================== */
+
+.hud-score-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.hud-score {
+  font-family: var(--font-display);
+  font-size: 12px;
+  color: #ffbe0b;
+  letter-spacing: 1px;
+}
+
+.leaderboard-kills {
+  font-size: 10px;
+  color: var(--accent-pink);
+  margin-left: 4px;
+}
+
+/* ==================== Game Over Stats ==================== */
+
+.gameover-score-stats {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.gameover-score-metric {
+  font-family: var(--font-display);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.gameover-score-entry.self {
+  border-left: 2px solid var(--accent-cyan);
+  padding-left: 8px;
+}
+
+/* ==================== Emote Hint ==================== */
+
+.emote-hint {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 11px;
+  color: var(--text-secondary);
+  opacity: 0.4;
+  font-family: var(--font-body);
+  pointer-events: none;
+  z-index: 5;
+  letter-spacing: 1px;
+}
