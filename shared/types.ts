@@ -279,7 +279,18 @@ export interface PlayerProgression {
   equippedPet: string;
   equippedTrail: string;
   equippedBorder: string;
+  equippedDeathEffect: string;
   unlockedCosmetics: string[]; // ids of unlocked cosmetics
+  // Currency & gambling
+  coins: number;
+  totalCoinsEarned: number;
+  boxesOpened: number;
+  // Pity system — guaranteed epic/legendary after N misses
+  pityCounter: number; // increments each box without epic+
+  // Daily reward streak
+  dailyStreak: number;
+  lastDailyClaimDate: string; // ISO date string "YYYY-MM-DD"
+  totalDailysClaimed: number;
 }
 
 // ============ LINK CONVERGENCE — multiple links to one node = more power ============
@@ -335,74 +346,201 @@ export const LEVEL_TITLES: [number, string][] = [
 // COSMETICS & UNLOCKABLES
 // ============================================================
 
-export type CosmeticType = 'skin' | 'pet' | 'trail' | 'border';
+export type CosmeticType = 'skin' | 'pet' | 'trail' | 'border' | 'deathEffect';
+export type CosmeticRarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary' | 'mythic';
 
 export interface CosmeticItem {
   id: string;
   name: string;
   type: CosmeticType;
   description: string;
-  levelRequired: number;
-  rarity: 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
-  icon: string; // emoji
-  preview?: string; // for rendering hints
+  rarity: CosmeticRarity;
+  // How to obtain: 'level' = auto-unlock at level, 'box' = loot box only, 'both' = either
+  source: 'level' | 'box' | 'both';
+  levelRequired: number; // 0 if box-only
 }
 
-export const RARITY_COLORS: Record<string, string> = {
-  common: '#aaaaaa',
+export const RARITY_COLORS: Record<CosmeticRarity, string> = {
+  common: '#8a8a8a',
   uncommon: '#39ff14',
   rare: '#00c8ff',
   epic: '#b44aff',
   legendary: '#ffd700',
+  mythic: '#ff2060',
+};
+
+export const RARITY_LABELS: Record<CosmeticRarity, string> = {
+  common: 'COMMON',
+  uncommon: 'UNCOMMON',
+  rare: 'RARE',
+  epic: 'EPIC',
+  legendary: 'LEGENDARY',
+  mythic: 'MYTHIC',
+};
+
+// ============================================================
+// LOOT BOX SYSTEM
+// ============================================================
+
+export interface LootBoxTier {
+  id: string;
+  name: string;
+  cost: number;
+  description: string;
+  color: string;
+  // Drop rates (must sum to 1.0)
+  rates: Record<CosmeticRarity, number>;
+}
+
+export const LOOT_BOXES: LootBoxTier[] = [
+  {
+    id: 'box_standard',
+    name: 'STANDARD CRATE',
+    cost: 100,
+    description: 'Basic drop crate',
+    color: '#6a6a8a',
+    rates: { common: 0.50, uncommon: 0.28, rare: 0.14, epic: 0.06, legendary: 0.018, mythic: 0.002 },
+  },
+  {
+    id: 'box_premium',
+    name: 'PREMIUM CRATE',
+    cost: 300,
+    description: 'Higher rarity odds',
+    color: '#b44aff',
+    rates: { common: 0.25, uncommon: 0.30, rare: 0.25, epic: 0.13, legendary: 0.06, mythic: 0.01 },
+  },
+  {
+    id: 'box_ultra',
+    name: 'ULTRA CRATE',
+    cost: 750,
+    description: 'Guaranteed rare or above',
+    color: '#ffd700',
+    rates: { common: 0, uncommon: 0, rare: 0.50, epic: 0.30, legendary: 0.15, mythic: 0.05 },
+  },
+];
+
+// Pity system: after this many opens without epic+, guaranteed epic
+export const PITY_THRESHOLD = 15;
+// After this many without legendary+, guaranteed legendary
+export const LEGENDARY_PITY = 40;
+
+// ============================================================
+// DAILY REWARDS
+// ============================================================
+
+export interface DailyReward {
+  day: number;       // 1-7 (repeats)
+  coins: number;
+  bonusLabel: string; // what the user sees
+}
+
+export const DAILY_REWARDS: DailyReward[] = [
+  { day: 1, coins: 50,  bonusLabel: '50 Coins' },
+  { day: 2, coins: 75,  bonusLabel: '75 Coins' },
+  { day: 3, coins: 100, bonusLabel: '100 Coins' },
+  { day: 4, coins: 150, bonusLabel: '150 Coins + Standard Crate' },
+  { day: 5, coins: 200, bonusLabel: '200 Coins' },
+  { day: 6, coins: 300, bonusLabel: '300 Coins' },
+  { day: 7, coins: 500, bonusLabel: '500 Coins + Premium Crate' },
+];
+
+// ============================================================
+// COIN EARNING RATES (server calculates, client displays)
+// ============================================================
+
+export const COIN_REWARDS = {
+  BASE_PER_GAME: 10,
+  PER_KILL: 8,
+  PER_100_SCORE: 3,
+  WIN_BONUS: 40,
+  STREAK_3_BONUS: 15,
+  STREAK_5_BONUS: 30,
+  FIRST_GAME_OF_DAY: 25,
 };
 
 export const ALL_COSMETICS: CosmeticItem[] = [
-  // ======== SKINS (change core node appearance) ========
-  { id: 'skin_default',   name: 'Standard',      type: 'skin', description: 'Default core look',               levelRequired: 1,  rarity: 'common',    icon: '⬤' },
-  { id: 'skin_hexagon',   name: 'Hexagon',        type: 'skin', description: 'Hexagonal core shape',            levelRequired: 3,  rarity: 'common',    icon: '⬡' },
-  { id: 'skin_diamond',   name: 'Diamond',        type: 'skin', description: 'Diamond-shaped core',             levelRequired: 5,  rarity: 'uncommon',  icon: '◆' },
-  { id: 'skin_star',      name: 'Starborn',       type: 'skin', description: 'Star-shaped pulsing core',        levelRequired: 8,  rarity: 'uncommon',  icon: '★' },
-  { id: 'skin_pulse',     name: 'Pulse Ring',     type: 'skin', description: 'Radiating pulse rings',           levelRequired: 12, rarity: 'rare',      icon: '◎' },
-  { id: 'skin_void',      name: 'Void Core',      type: 'skin', description: 'Dark matter swirling core',       levelRequired: 16, rarity: 'rare',      icon: '◉' },
-  { id: 'skin_plasma',    name: 'Plasma',         type: 'skin', description: 'Crackling plasma energy',         levelRequired: 20, rarity: 'epic',      icon: '⚡' },
-  { id: 'skin_galaxy',    name: 'Galaxy',         type: 'skin', description: 'Miniature galaxy spins inside',   levelRequired: 25, rarity: 'epic',      icon: '🌀' },
-  { id: 'skin_phoenix',   name: 'Phoenix',        type: 'skin', description: 'Fiery rebirth aura',              levelRequired: 30, rarity: 'legendary', icon: '🔥' },
-  { id: 'skin_glitch',    name: 'GLITCH',         type: 'skin', description: 'Reality-breaking distortion',     levelRequired: 40, rarity: 'legendary', icon: '👾' },
-  { id: 'skin_omega',     name: 'OMEGA',          type: 'skin', description: 'The ultimate core skin',          levelRequired: 50, rarity: 'legendary', icon: 'Ω' },
+  // ======== SKINS (core node appearance) ========
+  { id: 'skin_default',      name: 'Standard',          type: 'skin', description: 'Default core look',                      rarity: 'common',    source: 'level', levelRequired: 1 },
+  { id: 'skin_hexagon',      name: 'Hexagon',           type: 'skin', description: 'Hexagonal core shape',                   rarity: 'common',    source: 'level', levelRequired: 3 },
+  { id: 'skin_diamond',      name: 'Diamond',           type: 'skin', description: 'Diamond-shaped core',                    rarity: 'uncommon',  source: 'level', levelRequired: 5 },
+  { id: 'skin_star',         name: 'Starborn',          type: 'skin', description: 'Star-shaped pulsing core',               rarity: 'uncommon',  source: 'level', levelRequired: 8 },
+  { id: 'skin_pulse',        name: 'Pulse Ring',        type: 'skin', description: 'Radiating pulse rings',                  rarity: 'rare',      source: 'level', levelRequired: 12 },
+  { id: 'skin_void',         name: 'Void Core',         type: 'skin', description: 'Dark matter swirling core',              rarity: 'rare',      source: 'level', levelRequired: 16 },
+  { id: 'skin_plasma',       name: 'Plasma',            type: 'skin', description: 'Crackling plasma energy',                rarity: 'epic',      source: 'level', levelRequired: 20 },
+  { id: 'skin_galaxy',       name: 'Galaxy',            type: 'skin', description: 'Miniature galaxy spins inside',          rarity: 'epic',      source: 'level', levelRequired: 25 },
+  { id: 'skin_phoenix',      name: 'Phoenix',           type: 'skin', description: 'Fiery rebirth aura',                     rarity: 'legendary', source: 'level', levelRequired: 30 },
+  { id: 'skin_glitch',       name: 'GLITCH',            type: 'skin', description: 'Reality-breaking distortion',            rarity: 'legendary', source: 'level', levelRequired: 40 },
+  { id: 'skin_omega',        name: 'OMEGA',             type: 'skin', description: 'The ultimate core skin',                 rarity: 'legendary', source: 'level', levelRequired: 50 },
+  // Box-exclusive skins
+  { id: 'skin_neon_skull',   name: 'Neon Skull',        type: 'skin', description: 'Glowing skull-shaped core',              rarity: 'epic',      source: 'box',   levelRequired: 0 },
+  { id: 'skin_binary',       name: 'Binary',            type: 'skin', description: 'Cascading 0s and 1s',                    rarity: 'rare',      source: 'box',   levelRequired: 0 },
+  { id: 'skin_shatter',      name: 'Shattered',         type: 'skin', description: 'Fractured glass core',                   rarity: 'epic',      source: 'box',   levelRequired: 0 },
+  { id: 'skin_singularity',  name: 'Singularity',       type: 'skin', description: 'Warping spacetime core',                 rarity: 'legendary', source: 'box',   levelRequired: 0 },
+  { id: 'skin_chromatic',    name: 'Chromatic',         type: 'skin', description: 'Shifts through all colors',              rarity: 'mythic',    source: 'box',   levelRequired: 0 },
+  { id: 'skin_divine',       name: 'Divine Radiance',   type: 'skin', description: 'Blinding white-gold energy',             rarity: 'mythic',    source: 'box',   levelRequired: 0 },
 
-  // ======== PETS (orbit around your core) ========
-  { id: 'pet_none',       name: 'No Pet',         type: 'pet',  description: 'No pet equipped',                 levelRequired: 1,  rarity: 'common',    icon: '—' },
-  { id: 'pet_orb',        name: 'Spark Orb',      type: 'pet',  description: 'Tiny glowing orb follows you',    levelRequired: 4,  rarity: 'common',    icon: '✦' },
-  { id: 'pet_cube',       name: 'Holo Cube',      type: 'pet',  description: 'Rotating holographic cube',       levelRequired: 7,  rarity: 'uncommon',  icon: '◻' },
-  { id: 'pet_drone',      name: 'Mini Drone',     type: 'pet',  description: 'Buzzing little drone buddy',      levelRequired: 10, rarity: 'uncommon',  icon: '🤖' },
-  { id: 'pet_skull',      name: 'Ghost Skull',    type: 'pet',  description: 'Spectral skull orbits you',       levelRequired: 14, rarity: 'rare',      icon: '💀' },
-  { id: 'pet_star',       name: 'Star Fragment',  type: 'pet',  description: 'Twinkling star shard',            levelRequired: 18, rarity: 'rare',      icon: '⭐' },
-  { id: 'pet_dragon',     name: 'Pixel Dragon',   type: 'pet',  description: 'Tiny dragon circles your core',   levelRequired: 22, rarity: 'epic',      icon: '🐲' },
-  { id: 'pet_eye',        name: 'All-Seeing Eye', type: 'pet',  description: 'Watching… always watching',       levelRequired: 28, rarity: 'epic',      icon: '👁' },
-  { id: 'pet_blackhole',  name: 'Black Hole',     type: 'pet',  description: 'Miniature singularity',           levelRequired: 35, rarity: 'legendary', icon: '🕳' },
-  { id: 'pet_crown',      name: 'Royal Crown',    type: 'pet',  description: 'Floating golden crown',           levelRequired: 45, rarity: 'legendary', icon: '👑' },
+  // ======== PETS (orbit core) ========
+  { id: 'pet_none',          name: 'No Pet',            type: 'pet',  description: 'No pet equipped',                        rarity: 'common',    source: 'level', levelRequired: 1 },
+  { id: 'pet_orb',           name: 'Spark Orb',         type: 'pet',  description: 'Tiny glowing orb follows you',           rarity: 'common',    source: 'level', levelRequired: 4 },
+  { id: 'pet_cube',          name: 'Holo Cube',         type: 'pet',  description: 'Rotating holographic cube',              rarity: 'uncommon',  source: 'level', levelRequired: 7 },
+  { id: 'pet_drone',         name: 'Mini Drone',        type: 'pet',  description: 'Buzzing little drone buddy',             rarity: 'uncommon',  source: 'level', levelRequired: 10 },
+  { id: 'pet_skull',         name: 'Ghost Skull',       type: 'pet',  description: 'Spectral skull orbits you',              rarity: 'rare',      source: 'level', levelRequired: 14 },
+  { id: 'pet_star',          name: 'Star Fragment',     type: 'pet',  description: 'Twinkling star shard',                   rarity: 'rare',      source: 'level', levelRequired: 18 },
+  { id: 'pet_dragon',        name: 'Pixel Dragon',      type: 'pet',  description: 'Tiny dragon circles your core',          rarity: 'epic',      source: 'level', levelRequired: 22 },
+  { id: 'pet_eye',           name: 'All-Seeing Eye',    type: 'pet',  description: 'Watching... always watching',            rarity: 'epic',      source: 'level', levelRequired: 28 },
+  { id: 'pet_blackhole',     name: 'Black Hole',        type: 'pet',  description: 'Miniature singularity',                  rarity: 'legendary', source: 'level', levelRequired: 35 },
+  { id: 'pet_crown',         name: 'Royal Crown',       type: 'pet',  description: 'Floating golden crown',                  rarity: 'legendary', source: 'level', levelRequired: 45 },
+  // Box-exclusive pets
+  { id: 'pet_ghost',         name: 'Phantom',           type: 'pet',  description: 'Flickering ghost companion',             rarity: 'rare',      source: 'box',   levelRequired: 0 },
+  { id: 'pet_butterfly',     name: 'Neon Butterfly',    type: 'pet',  description: 'Electric butterfly orbits you',          rarity: 'epic',      source: 'box',   levelRequired: 0 },
+  { id: 'pet_serpent',       name: 'Cyber Serpent',      type: 'pet',  description: 'Coiling digital snake',                  rarity: 'epic',      source: 'box',   levelRequired: 0 },
+  { id: 'pet_phoenix_bird',  name: 'Phoenix Hatchling', type: 'pet',  description: 'Baby phoenix in flames',                 rarity: 'legendary', source: 'box',   levelRequired: 0 },
+  { id: 'pet_void_entity',   name: 'Void Entity',       type: 'pet',  description: 'Shifting dark matter creature',          rarity: 'mythic',    source: 'box',   levelRequired: 0 },
 
-  // ======== TRAILS (particles behind your core movement) ========
-  { id: 'trail_none',     name: 'No Trail',       type: 'trail', description: 'No trail effect',                levelRequired: 1,  rarity: 'common',    icon: '—' },
-  { id: 'trail_spark',    name: 'Sparks',         type: 'trail', description: 'Small spark particles',          levelRequired: 3,  rarity: 'common',    icon: '✧' },
-  { id: 'trail_smoke',    name: 'Smoke',          type: 'trail', description: 'Wispy smoke trail',              levelRequired: 6,  rarity: 'uncommon',  icon: '💨' },
-  { id: 'trail_fire',     name: 'Fire Trail',     type: 'trail', description: 'Blazing fire behind you',        levelRequired: 11, rarity: 'uncommon',  icon: '🔥' },
-  { id: 'trail_rainbow',  name: 'Prismatic',      type: 'trail', description: 'Rainbow chromatic trail',        levelRequired: 15, rarity: 'rare',      icon: '🌈' },
-  { id: 'trail_lightning', name: 'Lightning',     type: 'trail', description: 'Electric bolts trail',           levelRequired: 19, rarity: 'rare',      icon: '⚡' },
-  { id: 'trail_ice',      name: 'Frost',          type: 'trail', description: 'Icy crystalline particles',      levelRequired: 24, rarity: 'epic',      icon: '❄' },
-  { id: 'trail_void',     name: 'Void Wake',      type: 'trail', description: 'Dark matter distortion',         levelRequired: 32, rarity: 'epic',      icon: '🌑' },
-  { id: 'trail_galaxy',   name: 'Stardust',       type: 'trail', description: 'Cosmic stardust particles',      levelRequired: 42, rarity: 'legendary', icon: '✨' },
+  // ======== TRAILS (movement particles) ========
+  { id: 'trail_none',        name: 'No Trail',          type: 'trail', description: 'No trail effect',                       rarity: 'common',    source: 'level', levelRequired: 1 },
+  { id: 'trail_spark',       name: 'Sparks',            type: 'trail', description: 'Small spark particles',                 rarity: 'common',    source: 'level', levelRequired: 3 },
+  { id: 'trail_smoke',       name: 'Smoke',             type: 'trail', description: 'Wispy smoke trail',                     rarity: 'uncommon',  source: 'level', levelRequired: 6 },
+  { id: 'trail_fire',        name: 'Fire Trail',        type: 'trail', description: 'Blazing fire behind you',               rarity: 'uncommon',  source: 'level', levelRequired: 11 },
+  { id: 'trail_rainbow',     name: 'Prismatic',         type: 'trail', description: 'Rainbow chromatic trail',               rarity: 'rare',      source: 'level', levelRequired: 15 },
+  { id: 'trail_lightning',   name: 'Lightning',         type: 'trail', description: 'Electric bolts trail',                  rarity: 'rare',      source: 'level', levelRequired: 19 },
+  { id: 'trail_ice',         name: 'Frost',             type: 'trail', description: 'Icy crystalline particles',             rarity: 'epic',      source: 'level', levelRequired: 24 },
+  { id: 'trail_void',        name: 'Void Wake',         type: 'trail', description: 'Dark matter distortion',                rarity: 'epic',      source: 'level', levelRequired: 32 },
+  { id: 'trail_galaxy',      name: 'Stardust',          type: 'trail', description: 'Cosmic stardust particles',             rarity: 'legendary', source: 'level', levelRequired: 42 },
+  // Box-exclusive trails
+  { id: 'trail_glitch',      name: 'Glitch Trail',      type: 'trail', description: 'Pixelated distortion wake',             rarity: 'rare',      source: 'box',   levelRequired: 0 },
+  { id: 'trail_sakura',      name: 'Cherry Blossom',    type: 'trail', description: 'Falling pink petals',                   rarity: 'epic',      source: 'box',   levelRequired: 0 },
+  { id: 'trail_plasma_trail', name: 'Plasma Stream',    type: 'trail', description: 'Crackling energy stream',               rarity: 'epic',      source: 'box',   levelRequired: 0 },
+  { id: 'trail_celestial',   name: 'Celestial',         type: 'trail', description: 'Orbiting stars and moons',              rarity: 'legendary', source: 'box',   levelRequired: 0 },
+  { id: 'trail_oblivion',    name: 'Oblivion',          type: 'trail', description: 'Reality tears apart behind you',        rarity: 'mythic',    source: 'box',   levelRequired: 0 },
 
-  // ======== BORDERS (glow ring around your core) ========
-  { id: 'border_none',    name: 'No Border',      type: 'border', description: 'Default border',                levelRequired: 1,  rarity: 'common',    icon: '○' },
-  { id: 'border_thin',    name: 'Sharp Ring',     type: 'border', description: 'Thin bright ring',              levelRequired: 2,  rarity: 'common',    icon: '◯' },
-  { id: 'border_double',  name: 'Double Ring',    type: 'border', description: 'Two concentric rings',          levelRequired: 6,  rarity: 'uncommon',  icon: '◎' },
-  { id: 'border_dashed',  name: 'Dashed',         type: 'border', description: 'Rotating dashed border',        levelRequired: 9,  rarity: 'uncommon',  icon: '◌' },
-  { id: 'border_gear',    name: 'Gear Ring',      type: 'border', description: 'Spinning gear teeth border',    levelRequired: 13, rarity: 'rare',      icon: '⚙' },
-  { id: 'border_flame',   name: 'Flame Halo',     type: 'border', description: 'Fiery animated border',         levelRequired: 17, rarity: 'rare',      icon: '🔥' },
-  { id: 'border_pulse',   name: 'Pulse Wave',     type: 'border', description: 'Pulsating wave ring',           levelRequired: 23, rarity: 'epic',      icon: '〇' },
-  { id: 'border_holo',    name: 'Holographic',    type: 'border', description: 'Shifting holographic ring',     levelRequired: 33, rarity: 'epic',      icon: '💠' },
-  { id: 'border_divine',  name: 'Divine Aura',    type: 'border', description: 'Golden divine radiance',        levelRequired: 48, rarity: 'legendary', icon: '🌟' },
+  // ======== BORDERS (core ring effects) ========
+  { id: 'border_none',       name: 'No Border',         type: 'border', description: 'Default border',                       rarity: 'common',    source: 'level', levelRequired: 1 },
+  { id: 'border_thin',       name: 'Sharp Ring',        type: 'border', description: 'Thin bright ring',                     rarity: 'common',    source: 'level', levelRequired: 2 },
+  { id: 'border_double',     name: 'Double Ring',       type: 'border', description: 'Two concentric rings',                 rarity: 'uncommon',  source: 'level', levelRequired: 6 },
+  { id: 'border_dashed',     name: 'Dashed',            type: 'border', description: 'Rotating dashed border',               rarity: 'uncommon',  source: 'level', levelRequired: 9 },
+  { id: 'border_gear',       name: 'Gear Ring',         type: 'border', description: 'Spinning gear teeth border',           rarity: 'rare',      source: 'level', levelRequired: 13 },
+  { id: 'border_flame',      name: 'Flame Halo',        type: 'border', description: 'Fiery animated border',                rarity: 'rare',      source: 'level', levelRequired: 17 },
+  { id: 'border_pulse',      name: 'Pulse Wave',        type: 'border', description: 'Pulsating wave ring',                  rarity: 'epic',      source: 'level', levelRequired: 23 },
+  { id: 'border_holo',       name: 'Holographic',       type: 'border', description: 'Shifting holographic ring',            rarity: 'epic',      source: 'level', levelRequired: 33 },
+  { id: 'border_divine',     name: 'Divine Aura',       type: 'border', description: 'Golden divine radiance',               rarity: 'legendary', source: 'level', levelRequired: 48 },
+  // Box-exclusive borders
+  { id: 'border_circuit',    name: 'Circuit Board',     type: 'border', description: 'Digital circuit patterns',             rarity: 'rare',      source: 'box',   levelRequired: 0 },
+  { id: 'border_thorns',     name: 'Thorns',            type: 'border', description: 'Sharp thorny ring',                    rarity: 'epic',      source: 'box',   levelRequired: 0 },
+  { id: 'border_eclipse',    name: 'Eclipse',           type: 'border', description: 'Solar eclipse corona',                 rarity: 'legendary', source: 'box',   levelRequired: 0 },
+  { id: 'border_void_ring',  name: 'Void Ring',         type: 'border', description: 'Pulsing dark matter ring',             rarity: 'mythic',    source: 'box',   levelRequired: 0 },
+
+  // ======== DEATH EFFECTS (play when you eliminate someone) ========
+  { id: 'death_default',     name: 'Standard',          type: 'deathEffect', description: 'Default elimination burst',       rarity: 'common',    source: 'level', levelRequired: 1 },
+  { id: 'death_shatter',     name: 'Shatter',           type: 'deathEffect', description: 'Glass shattering effect',         rarity: 'uncommon',  source: 'level', levelRequired: 5 },
+  { id: 'death_vaporize',    name: 'Vaporize',          type: 'deathEffect', description: 'Target dissolves into particles', rarity: 'rare',      source: 'level', levelRequired: 15 },
+  { id: 'death_implode',     name: 'Implosion',         type: 'deathEffect', description: 'Black hole implosion',            rarity: 'epic',      source: 'level', levelRequired: 25 },
+  { id: 'death_lightning',   name: 'Lightning Strike',  type: 'deathEffect', description: 'Lightning bolt destroys target',  rarity: 'legendary', source: 'level', levelRequired: 38 },
+  // Box-exclusive death effects
+  { id: 'death_pixel',       name: 'Pixel Death',       type: 'deathEffect', description: 'Retro pixel explosion',           rarity: 'rare',      source: 'box',   levelRequired: 0 },
+  { id: 'death_fireworks',   name: 'Fireworks',         type: 'deathEffect', description: 'Celebratory fireworks burst',     rarity: 'epic',      source: 'box',   levelRequired: 0 },
+  { id: 'death_supernova',   name: 'Supernova',         type: 'deathEffect', description: 'Massive star explosion',          rarity: 'legendary', source: 'box',   levelRequired: 0 },
+  { id: 'death_erasure',     name: 'Erasure',           type: 'deathEffect', description: 'Deleted from existence',          rarity: 'mythic',    source: 'box',   levelRequired: 0 },
 ];
 
 // ============================================================
@@ -438,7 +576,7 @@ export interface ServerToClientEvents {
   'queue:status': (data: { position: number; playersNeeded: number; message: string }) => void;
   'game:state': (state: GameState) => void;
   'game:started': (state: GameState) => void;
-  'game:ended': (data: { winner: Player | null; scores: Player[]; winningTeam?: number; xpGained?: number }) => void;
+  'game:ended': (data: { winner: Player | null; scores: Player[]; winningTeam?: number; xpGained?: number; coinsGained?: number }) => void;
   'game:linkCreated': (link: GameLink) => void;
   'game:linkDestroyed': (data: { linkId: string; reason: string }) => void;
   'game:nodesClaimed': (data: { nodeIds: string[]; owner: string | null }) => void;

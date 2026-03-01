@@ -27,7 +27,7 @@ interface GameScreenProps {
   socket: Socket<ServerToClientEvents, ClientToServerEvents>;
   playerId: string;
   roomCode: string;
-  onGameOver: (winner: Player | null, scores: Player[], winningTeam?: number, xpGained?: number) => void;
+  onGameOver: (winner: Player | null, scores: Player[], winningTeam?: number, xpGained?: number, coinsGained?: number) => void;
 }
 
 export default function GameScreen({ socket, playerId, roomCode, onGameOver }: GameScreenProps) {
@@ -210,7 +210,7 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
     socket.on('game:ended', (data) => {
       audioManager.playGameEnd();
       audioManager.stopMusic();
-      onGameOver(data.winner, data.scores, data.winningTeam, data.xpGained);
+      onGameOver(data.winner, data.scores, data.winningTeam, data.xpGained, data.coinsGained);
     });
 
     socket.on('game:linkCreated', (link: GameLink) => {

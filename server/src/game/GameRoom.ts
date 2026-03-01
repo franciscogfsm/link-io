@@ -106,17 +106,17 @@ const STREAK_LABELS: [number, string][] = [
 const STREAK_BOUNTY_BASE = 50;
 
 const ABILITY_COSTS: Record<AbilityType, number> = {
-  surge: 40,
-  shield: 30,
-  emp: 60,
-  warp: 25,
+  surge: 35,   // cheap — offensive on adjacent links
+  shield: 25,  // defensive, brief burst
+  emp: 50,     // area nuke, higher CD justifies lower cost
+  warp: 20,    // utility repositioning
 };
 
 const ABILITY_COOLDOWNS: Record<AbilityType, number> = {
-  surge: 12,
-  shield: 15,
-  emp: 20,
-  warp: 10,
+  surge: 9,    // fast, surgical — meant to fire often
+  shield: 14,  // slightly shorter so it's not dead most of the time
+  emp: 18,     // powerful but still punishing if missed
+  warp: 8,     // quick reposition tool
 };
 
 const PLAYER_COLORS = [
@@ -507,20 +507,29 @@ export class GameRoom {
 
     switch (ability) {
       case 'surge': {
+        // Hit all enemy links touching OR within-1-hop of any owned node
         const ownedNodeIds = new Set(
           this.state.nodes.filter((n: GameNode) => n.owner === player.id).map((n: GameNode) => n.id)
         );
+        // Build second-hop set: nodes reachable from owned nodes via own links
+        const twoHopIds = new Set<string>(ownedNodeIds);
+        for (const link of this.state.links) {
+          if (link.owner === player.id) {
+            if (ownedNodeIds.has(link.fromNodeId)) twoHopIds.add(link.toNodeId);
+            if (ownedNodeIds.has(link.toNodeId)) twoHopIds.add(link.fromNodeId);
+          }
+        }
         for (const link of this.state.links) {
           if (link.owner !== player.id && !link.shielded) {
-            const touches = ownedNodeIds.has(link.fromNodeId) || ownedNodeIds.has(link.toNodeId);
+            const touches = twoHopIds.has(link.fromNodeId) || twoHopIds.has(link.toNodeId);
             if (touches) {
-              link.health -= 35;
+              link.health -= 50; // increased from 35
               targetNodes.push(link.fromNodeId, link.toNodeId);
             }
           }
         }
-        this.io.to(this.id).emit('game:screenShake', { intensity: 8, duration: 0.4 });
-        console.log(`[LINK.IO] ⚡ ${player.name} used SURGE! Hit ${targetNodes.length / 2} enemy links`);
+        this.io.to(this.id).emit('game:screenShake', { intensity: 10, duration: 0.45 });
+        console.log(`[LINK.IO] SURGE ${player.name} hit ${targetNodes.length / 2} enemy links`);
         break;
       }
 
@@ -550,7 +559,7 @@ export class GameRoom {
         );
         if (!coreNode) break;
 
-        const empRadius = 500;
+        const empRadius = 650; // increased from 500
         for (const link of this.state.links) {
           if (link.owner === player.id) continue;
           const fromNode = this.state.nodes.find((n: GameNode) => n.id === link.fromNodeId);
@@ -565,13 +574,24 @@ export class GameRoom {
 
           if (dist < empRadius) {
             if (!link.shielded) {
-              link.health -= 50;
+              link.health -= 70; // increased from 50
               targetNodes.push(link.fromNodeId, link.toNodeId);
             }
           }
         }
-        this.io.to(this.id).emit('game:screenShake', { intensity: 15, duration: 0.6 });
-        console.log(`[LINK.IO] 💣 ${player.name} used EMP! Range ${empRadius}, hit ${targetNodes.length / 2} links`);
+        // Also drain energy from enemies caught in blast
+        for (const other of this.state.players) {
+          if (other.id === player.id || !other.alive) continue;
+          const otherCore = this.state.nodes.find((n: GameNode) => n.id === other.coreNodeId);
+          if (!otherCore) continue;
+          const dx = otherCore.position.x - coreNode.position.x;
+          const dy = otherCore.position.y - coreNode.position.y;
+          if (Math.sqrt(dx * dx + dy * dy) < empRadius) {
+            other.energy = Math.max(0, other.energy - 20); // zap enemy energy
+          }
+        }
+        this.io.to(this.id).emit('game:screenShake', { intensity: 18, duration: 0.7 });
+        console.log(`[LINK.IO] EMP ${player.name} range ${empRadius}, hit ${targetNodes.length / 2} links`);
         break;
       }
 
@@ -1068,23 +1088,25 @@ export class GameRoom {
         }
       }
 
-      // Magnet upgrade — auto-claim ONE nearby unowned node on cooldown, costs energy
+      // Magnet upgrade — auto-claim nearby unowned nodes on cooldown
       if (player.alive && player.upgrades.magnet > 0) {
-        const magnetRange = [0, 100, 160, 220][player.upgrades.magnet];
+        // Tier 1: 180px, 1.0s CD  | Tier 2: 270px, 0.65s CD  | Tier 3: 360px, 0.4s CD
+        const magnetRange = [0, 180, 270, 360][player.upgrades.magnet];
         const magnetRangeSq = magnetRange * magnetRange;
-        const magnetCooldown = [0, 1.5, 1.2, 0.9][player.upgrades.magnet]; // seconds between grabs
-        const magnetEnergyCost = 5; // energy cost per auto-grab
-        // Use per-player cooldown tracker
-        let lastMagnet = this._magnetCooldowns.get(player.id) || 0;
+        const magnetCooldown = [0, 1.0, 0.65, 0.4][player.upgrades.magnet];
+        // Tier 3 grabs up to 2 nodes per interval
+        const maxGrabs = player.upgrades.magnet >= 3 ? 2 : 1;
+        const magnetEnergyCost = 3; // lowered from 5
         const now = this.tickCount / TICK_RATE;
+        const lastMagnet = this._magnetCooldowns.get(player.id) || 0;
         if (now - lastMagnet >= magnetCooldown && player.energy >= magnetEnergyCost) {
-          let claimed = false;
+          let grabbed = 0;
           const _magnetOwned = this.nodesByOwner.get(player.id) || [];
           const _magnetNeutral = this.nodesByOwner.get('') || [];
           for (const owned of _magnetOwned) {
-            if (claimed) break;
+            if (grabbed >= maxGrabs) break;
             for (const node of _magnetNeutral) {
-              if (claimed) break;
+              if (grabbed >= maxGrabs) break;
               if (node.isCore) continue;
               const dx = node.position.x - owned.position.x;
               const dy = node.position.y - owned.position.y;
@@ -1098,9 +1120,9 @@ export class GameRoom {
                 );
                 if (link) {
                   this.state.links.push(link);
-                  player.score += 5;
+                  player.score += 8; // increased from 5
                 }
-                claimed = true;
+                grabbed++;
                 this._magnetCooldowns.set(player.id, now);
               }
             }
@@ -1663,12 +1685,22 @@ export class GameRoom {
       // Cap max XP per game so grinding feels slow
       xp = Math.min(xp, 150);
 
+      // Calculate COINS earned
+      let coins = 10; // base coins per game
+      coins += player.killCount * 8; // per kill
+      coins += Math.floor(player.score / 100) * 3; // per 100 score
+      if (sortedPlayers[0]?.id === player.id) coins += 40; // winner bonus
+      if (this.gameMode === 'teams' && winningTeam && player.team === winningTeam) coins += 25;
+      if (player.bestStreak >= 3) coins += 15;
+      if (player.bestStreak >= 5) coins += 30;
+
       const socket = this.sockets.get(player.id);
       socket?.emit('game:ended', {
         winner: sortedPlayers[0] || null,
         scores: sortedPlayers,
         winningTeam,
         xpGained: xp,
+        coinsGained: coins,
       });
     }
 

@@ -27,7 +27,17 @@ function loadProgression(): PlayerProgression {
       if (!parsed.equippedPet) parsed.equippedPet = 'pet_none';
       if (!parsed.equippedTrail) parsed.equippedTrail = 'trail_none';
       if (!parsed.equippedBorder) parsed.equippedBorder = 'border_none';
-      if (!parsed.unlockedCosmetics) parsed.unlockedCosmetics = ['skin_default', 'pet_none', 'trail_none', 'border_none'];
+      if (!parsed.equippedDeathEffect) parsed.equippedDeathEffect = 'death_default';
+      if (!parsed.unlockedCosmetics) parsed.unlockedCosmetics = ['skin_default', 'pet_none', 'trail_none', 'border_none', 'death_default'];
+      // Ensure death_default is unlocked
+      if (!parsed.unlockedCosmetics.includes('death_default')) parsed.unlockedCosmetics.push('death_default');
+      if (typeof parsed.coins !== 'number') parsed.coins = 0;
+      if (typeof parsed.totalCoinsEarned !== 'number') parsed.totalCoinsEarned = 0;
+      if (typeof parsed.boxesOpened !== 'number') parsed.boxesOpened = 0;
+      if (typeof parsed.pityCounter !== 'number') parsed.pityCounter = 0;
+      if (typeof parsed.dailyStreak !== 'number') parsed.dailyStreak = 0;
+      if (!parsed.lastDailyClaimDate) parsed.lastDailyClaimDate = '';
+      if (typeof parsed.totalDailysClaimed !== 'number') parsed.totalDailysClaimed = 0;
       return parsed;
     }
   } catch { /* ignore */ }
@@ -39,7 +49,15 @@ function loadProgression(): PlayerProgression {
     equippedPet: 'pet_none',
     equippedTrail: 'trail_none',
     equippedBorder: 'border_none',
-    unlockedCosmetics: ['skin_default', 'pet_none', 'trail_none', 'border_none'],
+    equippedDeathEffect: 'death_default',
+    unlockedCosmetics: ['skin_default', 'pet_none', 'trail_none', 'border_none', 'death_default'],
+    coins: 0,
+    totalCoinsEarned: 0,
+    boxesOpened: 0,
+    pityCounter: 0,
+    dailyStreak: 0,
+    lastDailyClaimDate: '',
+    totalDailysClaimed: 0,
   };
 }
 
@@ -47,9 +65,11 @@ function saveProgression(prog: PlayerProgression): void {
   localStorage.setItem('linkio-progression', JSON.stringify(prog));
 }
 
-function addXP(xp: number, kills: number, won: boolean, bestStreak: number): PlayerProgression {
+function addXP(xp: number, kills: number, won: boolean, bestStreak: number, coinsEarned: number = 0): PlayerProgression {
   const prog = loadProgression();
   prog.xp += xp;
+  prog.coins += coinsEarned;
+  prog.totalCoinsEarned += coinsEarned;
   prog.gamesPlayed++;
   prog.totalKills += kills;
   if (won) prog.totalWins++;
@@ -66,9 +86,9 @@ function addXP(xp: number, kills: number, won: boolean, bestStreak: number): Pla
   }
   prog.currentTitle = currentTitle;
 
-  // Auto-unlock cosmetics based on level
+  // Auto-unlock level-based cosmetics
   for (const item of ALL_COSMETICS) {
-    if (prog.level >= item.levelRequired && !prog.unlockedCosmetics.includes(item.id)) {
+    if (item.source !== 'box' && prog.level >= item.levelRequired && !prog.unlockedCosmetics.includes(item.id)) {
       prog.unlockedCosmetics.push(item.id);
     }
   }
@@ -87,6 +107,7 @@ export default function App() {
   const [winningTeam, setWinningTeam] = useState<number | undefined>(undefined);
   const [scores, setScores] = useState<Player[]>([]);
   const [xpGained, setXpGained] = useState(0);
+  const [coinsGained, setCoinsGained] = useState(0);
   const [lobbyInfo, setLobbyInfo] = useState<LobbyInfo | null>(null);
   const [queueStatus, setQueueStatus] = useState<{ position: number; playersNeeded: number; message: string } | null>(null);
   const socketRef = useRef<Socket<ServerToClientEvents, ClientToServerEvents> | null>(null);
@@ -209,17 +230,19 @@ export default function App() {
     socketRef.current?.emit('lobby:startGame');
   }, []);
 
-  const handleGameOver = useCallback((w: Player | null, s: Player[], team?: number, xp?: number) => {
+  const handleGameOver = useCallback((w: Player | null, s: Player[], team?: number, xp?: number, coins?: number) => {
     setWinner(w);
     setScores(s);
     setWinningTeam(team);
 
-    // Save XP
+    // Save XP + coins
     const gained = xp || 50;
+    const earnedCoins = coins || 10;
     setXpGained(gained);
+    setCoinsGained(earnedCoins);
     const me = s.find(p => p.id === playerId);
     const isWinner = w?.id === playerId || (team !== undefined && me?.team === team);
-    addXP(gained, me?.killCount || 0, isWinner, me?.bestStreak || 0);
+    addXP(gained, me?.killCount || 0, isWinner, me?.bestStreak || 0, earnedCoins);
 
     setScreen('gameover');
   }, [playerId]);
@@ -281,6 +304,7 @@ export default function App() {
           onPlayAgain={handlePlayAgain}
           onMainMenu={handleMainMenu}
           xpGained={xpGained}
+          coinsGained={coinsGained}
         />
       )}
     </>

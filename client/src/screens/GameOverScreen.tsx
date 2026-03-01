@@ -13,9 +13,10 @@ interface GameOverScreenProps {
   onPlayAgain: () => void;
   onMainMenu: () => void;
   xpGained?: number;
+  coinsGained?: number;
 }
 
-export default function GameOverScreen({ winner, winningTeam, scores, currentPlayerId, onPlayAgain, onMainMenu, xpGained }: GameOverScreenProps) {
+export default function GameOverScreen({ winner, winningTeam, scores, currentPlayerId, onPlayAgain, onMainMenu, xpGained, coinsGained }: GameOverScreenProps) {
   const isWinner = winningTeam 
     ? scores.find(p => p.id === currentPlayerId)?.team === winningTeam
     : winner?.id === currentPlayerId;
@@ -39,12 +40,13 @@ export default function GameOverScreen({ winner, winningTeam, scores, currentPla
         </p>
       )}
 
-      {/* XP Gain Display */}
-      {xpGained && xpGained > 0 && (
+      {/* XP + Coins Display */}
+      {((xpGained && xpGained > 0) || (coinsGained && coinsGained > 0)) && (
         <div className="gameover-xp">
-          <span className="xp-gain">+{xpGained} XP</span>
-          {isWinner && <span className="xp-bonus">WIN BONUS!</span>}
-          {me && me.bestStreak >= 5 && <span className="xp-bonus">STREAK BONUS!</span>}
+          {xpGained && xpGained > 0 && <span className="xp-gain">+{xpGained} XP</span>}
+          {coinsGained && coinsGained > 0 && <span className="coins-gain">+{coinsGained} COINS</span>}
+          {isWinner && <span className="xp-bonus">WIN BONUS</span>}
+          {me && me.bestStreak >= 5 && <span className="xp-bonus">STREAK BONUS</span>}
         </div>
       )}
 

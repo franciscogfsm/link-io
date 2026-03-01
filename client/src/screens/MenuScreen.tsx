@@ -1,14 +1,19 @@
 // ============================================================
 // LINK.IO Client - Menu Screen
 // Premium landing page, clipboard copy, player count, XP
+// Loot box system, daily rewards, cosmetics shop
 // ============================================================
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback, type ReactElement } from 'react';
 import { socketManager } from '../network/SocketManager';
-import type { GameMode, LobbyInfo, PlayerProgression, CosmeticItem } from '../../../shared/types';
-import { getLevelFromXP, xpToNextLevel, xpForLevel, LEVEL_TITLES, ALL_COSMETICS, RARITY_COLORS } from '../../../shared/types';
+import type { GameMode, LobbyInfo, PlayerProgression, CosmeticItem, CosmeticType, CosmeticRarity, LootBoxTier } from '../../../shared/types';
+import {
+  getLevelFromXP, xpToNextLevel, xpForLevel, LEVEL_TITLES,
+  ALL_COSMETICS, RARITY_COLORS, RARITY_LABELS,
+  LOOT_BOXES, DAILY_REWARDS, PITY_THRESHOLD, LEGENDARY_PITY,
+} from '../../../shared/types';
 
-// Local XP functions (use shared scaling)
+// ======== Progression helpers ========
 function getProgression(): PlayerProgression {
   try {
     const data = localStorage.getItem('linkio-progression');
@@ -18,11 +23,20 @@ function getProgression(): PlayerProgression {
       if (!parsed.equippedPet) parsed.equippedPet = 'pet_none';
       if (!parsed.equippedTrail) parsed.equippedTrail = 'trail_none';
       if (!parsed.equippedBorder) parsed.equippedBorder = 'border_none';
-      if (!parsed.unlockedCosmetics) parsed.unlockedCosmetics = ['skin_default', 'pet_none', 'trail_none', 'border_none'];
+      if (!parsed.equippedDeathEffect) parsed.equippedDeathEffect = 'death_default';
+      if (!parsed.unlockedCosmetics) parsed.unlockedCosmetics = ['skin_default', 'pet_none', 'trail_none', 'border_none', 'death_default'];
+      if (!parsed.unlockedCosmetics.includes('death_default')) parsed.unlockedCosmetics.push('death_default');
+      if (typeof parsed.coins !== 'number') parsed.coins = 0;
+      if (typeof parsed.totalCoinsEarned !== 'number') parsed.totalCoinsEarned = 0;
+      if (typeof parsed.boxesOpened !== 'number') parsed.boxesOpened = 0;
+      if (typeof parsed.pityCounter !== 'number') parsed.pityCounter = 0;
+      if (typeof parsed.dailyStreak !== 'number') parsed.dailyStreak = 0;
+      if (!parsed.lastDailyClaimDate) parsed.lastDailyClaimDate = '';
+      if (typeof parsed.totalDailysClaimed !== 'number') parsed.totalDailysClaimed = 0;
       parsed.level = getLevelFromXP(parsed.xp);
-      // Auto-unlock cosmetics
+      // Auto-unlock level-based cosmetics
       for (const item of ALL_COSMETICS) {
-        if (parsed.level >= item.levelRequired && !parsed.unlockedCosmetics.includes(item.id)) {
+        if (item.source !== 'box' && parsed.level >= item.levelRequired && !parsed.unlockedCosmetics.includes(item.id)) {
           parsed.unlockedCosmetics.push(item.id);
         }
       }
@@ -35,13 +49,97 @@ function getProgression(): PlayerProgression {
     titles: ['Newcomer'], currentTitle: 'Newcomer',
     equippedSkin: 'skin_default', equippedPet: 'pet_none',
     equippedTrail: 'trail_none', equippedBorder: 'border_none',
-    unlockedCosmetics: ['skin_default', 'pet_none', 'trail_none', 'border_none'],
+    equippedDeathEffect: 'death_default',
+    unlockedCosmetics: ['skin_default', 'pet_none', 'trail_none', 'border_none', 'death_default'],
+    coins: 0, totalCoinsEarned: 0, boxesOpened: 0,
+    pityCounter: 0, dailyStreak: 0, lastDailyClaimDate: '', totalDailysClaimed: 0,
   };
 }
 
 function saveProgression(prog: PlayerProgression): void {
   localStorage.setItem('linkio-progression', JSON.stringify(prog));
 }
+
+// ======== Loot box rolling logic ========
+function rollRarity(box: LootBoxTier, pity: number): CosmeticRarity {
+  // Pity overrides
+  if (pity >= LEGENDARY_PITY) return 'legendary';
+  if (pity >= PITY_THRESHOLD) return 'epic';
+  const r = Math.random();
+  let cumulative = 0;
+  const rarities: CosmeticRarity[] = ['mythic', 'legendary', 'epic', 'rare', 'uncommon', 'common'];
+  for (const rarity of rarities) {
+    cumulative += box.rates[rarity];
+    if (r < cumulative) return rarity;
+  }
+  return 'common';
+}
+
+function getItemsOfRarity(rarity: CosmeticRarity, unlockedIds: string[]): CosmeticItem[] {
+  return ALL_COSMETICS.filter(c =>
+    c.rarity === rarity && c.source !== 'level' && !unlockedIds.includes(c.id)
+  );
+}
+
+function pickRandomItem(box: LootBoxTier, prog: PlayerProgression): { item: CosmeticItem; rarity: CosmeticRarity; isDuplicate: boolean } {
+  const rarity = rollRarity(box, prog.pityCounter);
+  let pool = getItemsOfRarity(rarity, prog.unlockedCosmetics);
+
+  // If no unowned items at this rarity, try adjacent rarities, then allow duplicates
+  if (pool.length === 0) {
+    const fallbackOrder: CosmeticRarity[] = ['mythic', 'legendary', 'epic', 'rare', 'uncommon', 'common'];
+    for (const fb of fallbackOrder) {
+      pool = getItemsOfRarity(fb, prog.unlockedCosmetics);
+      if (pool.length > 0) break;
+    }
+  }
+
+  if (pool.length === 0) {
+    // All items owned — give duplicate for coin refund
+    const allOfRarity = ALL_COSMETICS.filter(c => c.rarity === rarity && c.source !== 'level');
+    const item = allOfRarity.length > 0
+      ? allOfRarity[Math.floor(Math.random() * allOfRarity.length)]
+      : ALL_COSMETICS[Math.floor(Math.random() * ALL_COSMETICS.length)];
+    return { item, rarity, isDuplicate: true };
+  }
+
+  return { item: pool[Math.floor(Math.random() * pool.length)], rarity, isDuplicate: false };
+}
+
+// Duplicate coin refund amounts
+const DUPE_REFUND: Record<CosmeticRarity, number> = {
+  common: 15, uncommon: 25, rare: 50, epic: 100, legendary: 200, mythic: 400,
+};
+
+// Today's date as YYYY-MM-DD
+function todayStr(): string {
+  return new Date().toISOString().split('T')[0];
+}
+
+function canClaimDaily(prog: PlayerProgression): boolean {
+  return prog.lastDailyClaimDate !== todayStr();
+}
+
+function getDailyRewardIndex(prog: PlayerProgression): number {
+  return prog.dailyStreak % DAILY_REWARDS.length;
+}
+
+// ======== Tab type icons (SVG inline) ========
+const TAB_ICONS: Record<CosmeticType, ReactElement> = {
+  skin: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>,
+  pet: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-7 8-7s8 3 8 7"/><circle cx="4" cy="5" r="2"/><circle cx="20" cy="5" r="2"/></svg>,
+  trail: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z"/></svg>,
+  border: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="3"/><rect x="7" y="7" width="10" height="10" rx="2"/></svg>,
+  deathEffect: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>,
+};
+
+const TAB_LABELS: Record<CosmeticType, string> = {
+  skin: 'Skins',
+  pet: 'Pets',
+  trail: 'Trails',
+  border: 'Borders',
+  deathEffect: 'Effects',
+};
 
 interface MenuScreenProps {
   onPlay: (name: string, gameMode: GameMode) => void;
@@ -58,6 +156,9 @@ interface MenuScreenProps {
   onLobbyStartGame?: () => void;
 }
 
+// ======== View states for the shop overlay ========
+type ShopView = 'main' | 'collection' | 'crates' | 'daily';
+
 export default function MenuScreen({ onPlay, onCreateLobby, onJoinLobby, error, connecting, roomCode, playerId, lobbyInfo, queueStatus, onLobbySetTeam, onLobbyToggleReady, onLobbyStartGame }: MenuScreenProps) {
   const [name, setName] = useState(() => localStorage.getItem('linkio-name') || '');
   const [joinCode, setJoinCode] = useState('');
@@ -65,23 +166,35 @@ export default function MenuScreen({ onPlay, onCreateLobby, onJoinLobby, error, 
   const [copied, setCopied] = useState(false);
   const [onlinePlayers, setOnlinePlayers] = useState(0);
   const [showShop, setShowShop] = useState(false);
-  const [shopTab, setShopTab] = useState<'skin' | 'pet' | 'trail' | 'border'>('skin');
+  const [shopView, setShopView] = useState<ShopView>('main');
+  const [shopTab, setShopTab] = useState<CosmeticType>('skin');
   const [prog, setProg] = useState(getProgression);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  // Loot box state
+  const [openingBox, setOpeningBox] = useState<LootBoxTier | null>(null);
+  const [boxResult, setBoxResult] = useState<{ item: CosmeticItem; rarity: CosmeticRarity; isDuplicate: boolean } | null>(null);
+  const [boxAnimPhase, setBoxAnimPhase] = useState<'idle' | 'spinning' | 'reveal'>('idle');
+  const [reelItems, setReelItems] = useState<{ item: CosmeticItem; rarity: CosmeticRarity }[]>([]);
+
+  // Daily reward state
+  const [dailyClaimed, setDailyClaimed] = useState(!canClaimDaily(prog));
 
   const xpNeeded = xpToNextLevel(prog.level);
   const xpIntoLevel = prog.xp - xpForLevel(prog.level);
   const xpPercent = Math.min((xpIntoLevel / xpNeeded) * 100, 100);
 
-  const equipCosmetic = (item: CosmeticItem) => {
+  // ======== Equip cosmetic ========
+  const equipCosmetic = useCallback((item: CosmeticItem) => {
     const updated = { ...prog };
     if (item.type === 'skin') updated.equippedSkin = item.id;
     else if (item.type === 'pet') updated.equippedPet = item.id;
     else if (item.type === 'trail') updated.equippedTrail = item.id;
     else if (item.type === 'border') updated.equippedBorder = item.id;
+    else if (item.type === 'deathEffect') updated.equippedDeathEffect = item.id;
     saveProgression(updated);
     setProg(updated);
-  };
+  }, [prog]);
 
   const getShopItems = () => ALL_COSMETICS.filter(c => c.type === shopTab);
   const isUnlocked = (id: string) => prog.unlockedCosmetics.includes(id);
@@ -90,15 +203,132 @@ export default function MenuScreen({ onPlay, onCreateLobby, onJoinLobby, error, 
     if (item.type === 'pet') return prog.equippedPet === item.id;
     if (item.type === 'trail') return prog.equippedTrail === item.id;
     if (item.type === 'border') return prog.equippedBorder === item.id;
+    if (item.type === 'deathEffect') return prog.equippedDeathEffect === item.id;
     return false;
   };
 
-  // Persist name
+  // ======== Open a loot box ========
+  const openBox = useCallback((box: LootBoxTier) => {
+    if (prog.coins < box.cost) return;
+    const updated = { ...prog, coins: prog.coins - box.cost, boxesOpened: prog.boxesOpened + 1 };
+    const result = pickRandomItem(box, updated);
+
+    if (!result.isDuplicate) {
+      updated.unlockedCosmetics = [...updated.unlockedCosmetics, result.item.id];
+      // Reset pity if epic+
+      if (['epic', 'legendary', 'mythic'].includes(result.rarity)) {
+        updated.pityCounter = 0;
+      } else {
+        updated.pityCounter++;
+      }
+    } else {
+      // Duplicate refund
+      updated.coins += DUPE_REFUND[result.rarity];
+      updated.pityCounter++;
+    }
+
+    saveProgression(updated);
+    setProg(updated);
+
+    // Build reel items for spin animation (15 fake + 1 real at end)
+    const fakeReel: { item: CosmeticItem; rarity: CosmeticRarity }[] = [];
+    const rarities: CosmeticRarity[] = ['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic'];
+    for (let i = 0; i < 15; i++) {
+      // Weighted random for visual effect (show near-misses)
+      let fakeRarity: CosmeticRarity;
+      const r = Math.random();
+      if (r < 0.35) fakeRarity = 'common';
+      else if (r < 0.60) fakeRarity = 'uncommon';
+      else if (r < 0.80) fakeRarity = 'rare';
+      else if (r < 0.92) fakeRarity = 'epic';
+      else if (r < 0.98) fakeRarity = 'legendary';
+      else fakeRarity = 'mythic';
+      const fakePool = ALL_COSMETICS.filter(c => c.rarity === fakeRarity && c.source !== 'level');
+      const fakeItem = fakePool.length > 0 ? fakePool[Math.floor(Math.random() * fakePool.length)] : ALL_COSMETICS[0];
+      fakeReel.push({ item: fakeItem, rarity: fakeRarity });
+    }
+    // Near-miss: put a rarity above/below the result near the end
+    const resultIdx = rarities.indexOf(result.rarity);
+    if (resultIdx < rarities.length - 1) {
+      const nearMissRarity = rarities[resultIdx + 1];
+      const nearPool = ALL_COSMETICS.filter(c => c.rarity === nearMissRarity && c.source !== 'level');
+      if (nearPool.length > 0) {
+        fakeReel[13] = { item: nearPool[Math.floor(Math.random() * nearPool.length)], rarity: nearMissRarity };
+      }
+    }
+    fakeReel.push({ item: result.item, rarity: result.rarity });
+    setReelItems(fakeReel);
+
+    setOpeningBox(box);
+    setBoxResult(result);
+    setBoxAnimPhase('spinning');
+
+    // After 2.5s, reveal
+    setTimeout(() => {
+      setBoxAnimPhase('reveal');
+    }, 2500);
+  }, [prog]);
+
+  const closeBoxReveal = useCallback(() => {
+    setOpeningBox(null);
+    setBoxResult(null);
+    setBoxAnimPhase('idle');
+    setReelItems([]);
+  }, []);
+
+  // ======== Claim daily reward ========
+  const claimDaily = useCallback(() => {
+    if (!canClaimDaily(prog)) return;
+    const updated = { ...prog };
+    const today = todayStr();
+
+    // Check streak continuity
+    if (updated.lastDailyClaimDate) {
+      const lastDate = new Date(updated.lastDailyClaimDate);
+      const todayDate = new Date(today);
+      const diffDays = Math.floor((todayDate.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
+      if (diffDays > 1) {
+        updated.dailyStreak = 0; // Streak broken
+      }
+    }
+
+    const rewardIdx = updated.dailyStreak % DAILY_REWARDS.length;
+    const reward = DAILY_REWARDS[rewardIdx];
+    updated.coins += reward.coins;
+    updated.totalCoinsEarned += reward.coins;
+    updated.dailyStreak++;
+    updated.lastDailyClaimDate = today;
+    updated.totalDailysClaimed++;
+
+    // Day 4 and 7 bonus crates auto-granted (give random items from box)
+    if (reward.day === 4) {
+      const stdBox = LOOT_BOXES[0];
+      const r = pickRandomItem(stdBox, updated);
+      if (!r.isDuplicate) {
+        updated.unlockedCosmetics = [...updated.unlockedCosmetics, r.item.id];
+      } else {
+        updated.coins += DUPE_REFUND[r.rarity];
+      }
+    } else if (reward.day === 7) {
+      const premBox = LOOT_BOXES[1];
+      const r = pickRandomItem(premBox, updated);
+      if (!r.isDuplicate) {
+        updated.unlockedCosmetics = [...updated.unlockedCosmetics, r.item.id];
+      } else {
+        updated.coins += DUPE_REFUND[r.rarity];
+      }
+    }
+
+    saveProgression(updated);
+    setProg(updated);
+    setDailyClaimed(true);
+  }, [prog]);
+
+  // ======== Side effects ========
   useEffect(() => {
     if (name.trim()) localStorage.setItem('linkio-name', name.trim());
   }, [name]);
 
-  // Get live player count
   useEffect(() => {
     const socket = socketManager.connect();
     socket.emit('player:requestPlayerCount');
@@ -108,7 +338,7 @@ export default function MenuScreen({ onPlay, onCreateLobby, onJoinLobby, error, 
     return () => { unsub(); };
   }, []);
 
-  // Animated background particles
+  // Animated background
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -139,24 +369,16 @@ export default function MenuScreen({ onPlay, onCreateLobby, onJoinLobby, error, 
       ctx.fillStyle = '#05050f';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Grid lines (subtle)
       ctx.strokeStyle = 'rgba(0, 240, 255, 0.03)';
       ctx.lineWidth = 1;
       const gridSize = 60;
       for (let x = 0; x < canvas.width; x += gridSize) {
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, canvas.height);
-        ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
       }
       for (let y = 0; y < canvas.height; y += gridSize) {
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(canvas.width, y);
-        ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
       }
 
-      // Draw connections between nearby particles
       for (let i = 0; i < particles.length; i++) {
         for (let j = i + 1; j < particles.length; j++) {
           const dx = particles[j].x - particles[i].x;
@@ -174,11 +396,9 @@ export default function MenuScreen({ onPlay, onCreateLobby, onJoinLobby, error, 
       }
 
       for (const p of particles) {
-        p.x += p.vx;
-        p.y += p.vy;
+        p.x += p.vx; p.y += p.vy;
         if (p.x < 0 || p.x > canvas.width) p.vx *= -1;
         if (p.y < 0 || p.y > canvas.height) p.vy *= -1;
-
         ctx.fillStyle = `hsla(${p.hue}, 80%, 60%, ${p.alpha})`;
         ctx.shadowColor = `hsla(${p.hue}, 80%, 60%, 0.4)`;
         ctx.shadowBlur = 6;
@@ -187,7 +407,6 @@ export default function MenuScreen({ onPlay, onCreateLobby, onJoinLobby, error, 
         ctx.fill();
         ctx.shadowBlur = 0;
       }
-
       animId = requestAnimationFrame(draw);
     };
 
@@ -204,7 +423,6 @@ export default function MenuScreen({ onPlay, onCreateLobby, onJoinLobby, error, 
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // fallback
       const el = document.createElement('textarea');
       el.value = roomCode;
       document.body.appendChild(el);
@@ -216,6 +434,12 @@ export default function MenuScreen({ onPlay, onCreateLobby, onJoinLobby, error, 
     }
   };
 
+  // ======== Rarity-colored dot for cards ========
+  const rarityDot = (rarity: CosmeticRarity) => (
+    <span className="rarity-dot" style={{ background: RARITY_COLORS[rarity] }} />
+  );
+
+  // ======== RENDER ========
   return (
     <div className="menu-container">
       <canvas ref={canvasRef} className="menu-bg-canvas" />
@@ -225,7 +449,7 @@ export default function MenuScreen({ onPlay, onCreateLobby, onJoinLobby, error, 
         </h1>
         <p className="menu-subtitle">BUILD · CONNECT · DOMINATE</p>
 
-        {/* Player count + XP bar */}
+        {/* Player count + XP bar + Coins */}
         <div className="menu-status-bar">
           {onlinePlayers > 0 && (
             <div className="menu-online-count">
@@ -241,66 +465,316 @@ export default function MenuScreen({ onPlay, onCreateLobby, onJoinLobby, error, 
             </div>
             <span className="xp-text">{Math.floor(xpIntoLevel)}/{xpNeeded} XP</span>
           </div>
-          <button className="btn btn-cosmetics" onClick={() => setShowShop(true)}>
-            🎨 COSMETICS
+          <div className="menu-coin-display">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="#ffd700" stroke="#b8960c" strokeWidth="1.5"><circle cx="12" cy="12" r="10"/><text x="12" y="16" textAnchor="middle" fontSize="12" fill="#b8960c" fontWeight="bold" stroke="none">C</text></svg>
+            <span className="coin-amount">{prog.coins.toLocaleString()}</span>
+          </div>
+          <button className="btn btn-cosmetics" onClick={() => { setShowShop(true); setShopView('main'); }}>
+            SHOP
           </button>
         </div>
 
-        {/* COSMETICS SHOP MODAL */}
+        {/* ==================== SHOP OVERLAY ==================== */}
         {showShop && (
           <div className="cosmetics-overlay" onClick={() => setShowShop(false)}>
             <div className="cosmetics-shop" onClick={e => e.stopPropagation()}>
+
+              {/* Shop Header */}
               <div className="cosmetics-header">
-                <h2 className="cosmetics-title">COSMETICS SHOP</h2>
-                <span className="cosmetics-level">LVL {prog.level}</span>
-                <button className="cosmetics-close" onClick={() => setShowShop(false)}>✕</button>
+                <h2 className="cosmetics-title">
+                  {shopView === 'main' ? 'SHOP' : shopView === 'collection' ? 'COLLECTION' : shopView === 'crates' ? 'CRATES' : 'DAILY REWARDS'}
+                </h2>
+                <div className="shop-header-right">
+                  <div className="shop-coin-badge">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="#ffd700" stroke="#b8960c" strokeWidth="1.5"><circle cx="12" cy="12" r="10"/><text x="12" y="16" textAnchor="middle" fontSize="12" fill="#b8960c" fontWeight="bold" stroke="none">C</text></svg>
+                    <span>{prog.coins.toLocaleString()}</span>
+                  </div>
+                  <span className="cosmetics-level">LVL {prog.level}</span>
+                  <button className="cosmetics-close" onClick={() => setShowShop(false)}>X</button>
+                </div>
               </div>
 
-              <div className="cosmetics-tabs">
-                {(['skin', 'pet', 'trail', 'border'] as const).map(tab => (
+              {/* Shop Navigation */}
+              <div className="shop-nav">
+                {([
+                  { id: 'main' as ShopView, label: 'HOME' },
+                  { id: 'crates' as ShopView, label: 'CRATES' },
+                  { id: 'collection' as ShopView, label: 'COLLECTION' },
+                  { id: 'daily' as ShopView, label: 'DAILY' },
+                ]).map(nav => (
                   <button
-                    key={tab}
-                    className={`cosmetics-tab ${shopTab === tab ? 'active' : ''}`}
-                    onClick={() => setShopTab(tab)}
+                    key={nav.id}
+                    className={`shop-nav-btn ${shopView === nav.id ? 'active' : ''}`}
+                    onClick={() => setShopView(nav.id)}
                   >
-                    {tab === 'skin' ? '🎭 Skins' : tab === 'pet' ? '🐾 Pets' : tab === 'trail' ? '✨ Trails' : '💠 Borders'}
+                    {nav.label}
+                    {nav.id === 'daily' && !dailyClaimed && <span className="nav-badge">1</span>}
                   </button>
                 ))}
               </div>
 
-              <div className="cosmetics-grid">
-                {getShopItems().map(item => {
-                  const unlocked = isUnlocked(item.id);
-                  const equipped = isEquipped(item);
-                  return (
-                    <div
-                      key={item.id}
-                      className={`cosmetic-card ${unlocked ? 'unlocked' : 'locked'} ${equipped ? 'equipped' : ''} rarity-${item.rarity}`}
-                      onClick={() => unlocked && equipCosmetic(item)}
-                    >
-                      <div className="cosmetic-icon">{item.icon}</div>
-                      <div className="cosmetic-name">{item.name}</div>
-                      <div className="cosmetic-rarity" style={{ color: RARITY_COLORS[item.rarity] }}>
-                        {item.rarity.toUpperCase()}
+              {/* ====== HOME VIEW ====== */}
+              {shopView === 'main' && (
+                <div className="shop-home">
+                  {/* Daily Reward Banner */}
+                  {!dailyClaimed && (
+                    <div className="daily-banner" onClick={() => setShopView('daily')}>
+                      <div className="daily-banner-text">
+                        <span className="daily-banner-title">DAILY REWARD AVAILABLE</span>
+                        <span className="daily-banner-sub">Day {getDailyRewardIndex(prog) + 1} - {DAILY_REWARDS[getDailyRewardIndex(prog)].bonusLabel}</span>
                       </div>
-                      {!unlocked && (
-                        <div className="cosmetic-lock">
-                          🔒 LVL {item.levelRequired}
-                        </div>
-                      )}
-                      {equipped && <div className="cosmetic-equipped-badge">EQUIPPED</div>}
-                      <div className="cosmetic-desc">{item.description}</div>
+                      <button className="btn btn-daily-claim" onClick={(e) => { e.stopPropagation(); claimDaily(); }}>CLAIM</button>
                     </div>
-                  );
-                })}
-              </div>
+                  )}
 
-              <div className="cosmetics-progress">
-                <span>{prog.unlockedCosmetics.length}/{ALL_COSMETICS.length} unlocked</span>
-                <div className="cosmetics-progress-bar">
-                  <div className="cosmetics-progress-fill" style={{ width: `${(prog.unlockedCosmetics.length / ALL_COSMETICS.length) * 100}%` }} />
+                  {/* Quick Crate Cards */}
+                  <div className="shop-section-label">OPEN CRATES</div>
+                  <div className="crate-cards-row">
+                    {LOOT_BOXES.map(box => (
+                      <div
+                        key={box.id}
+                        className={`crate-card crate-${box.id.replace('box_', '')}`}
+                        onClick={() => openBox(box)}
+                        style={{ borderColor: prog.coins >= box.cost ? box.color : 'rgba(255,255,255,0.08)' }}
+                      >
+                        <div className="crate-visual" style={{ color: box.color }}>
+                          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                            <rect x="2" y="8" width="20" height="14" rx="2"/>
+                            <path d="M12 8V2M7 8l5-6 5 6"/>
+                            <line x1="2" y1="14" x2="22" y2="14" strokeDasharray="2 2"/>
+                          </svg>
+                        </div>
+                        <div className="crate-name">{box.name}</div>
+                        <div className="crate-cost" style={{ color: prog.coins >= box.cost ? '#ffd700' : '#ff4444' }}>
+                          {box.cost} coins
+                        </div>
+                        {prog.coins < box.cost && <div className="crate-need">Need {box.cost - prog.coins} more</div>}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Pity Info */}
+                  <div className="pity-info">
+                    <span className="pity-label">Pity counter: {prog.pityCounter}/{PITY_THRESHOLD}</span>
+                    <div className="pity-bar">
+                      <div className="pity-bar-fill" style={{ width: `${(prog.pityCounter / PITY_THRESHOLD) * 100}%` }} />
+                    </div>
+                    <span className="pity-hint">Guaranteed epic after {PITY_THRESHOLD} opens without one</span>
+                  </div>
+
+                  {/* Stats */}
+                  <div className="shop-stats">
+                    <div className="stat-item"><span className="stat-value">{prog.boxesOpened}</span><span className="stat-label">Boxes Opened</span></div>
+                    <div className="stat-item"><span className="stat-value">{prog.unlockedCosmetics.length}/{ALL_COSMETICS.length}</span><span className="stat-label">Collected</span></div>
+                    <div className="stat-item"><span className="stat-value">{prog.totalCoinsEarned.toLocaleString()}</span><span className="stat-label">Total Coins</span></div>
+                    <div className="stat-item"><span className="stat-value">{prog.dailyStreak}</span><span className="stat-label">Day Streak</span></div>
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {/* ====== CRATES VIEW ====== */}
+              {shopView === 'crates' && (
+                <div className="shop-crates">
+                  {LOOT_BOXES.map(box => (
+                    <div key={box.id} className="crate-detail-card" style={{ borderColor: box.color }}>
+                      <div className="crate-detail-head">
+                        <div className="crate-detail-icon" style={{ color: box.color }}>
+                          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                            <rect x="2" y="8" width="20" height="14" rx="2"/>
+                            <path d="M12 8V2M7 8l5-6 5 6"/>
+                            <line x1="2" y1="14" x2="22" y2="14" strokeDasharray="2 2"/>
+                          </svg>
+                        </div>
+                        <div className="crate-detail-info">
+                          <div className="crate-detail-name" style={{ color: box.color }}>{box.name}</div>
+                          <div className="crate-detail-desc">{box.description}</div>
+                          <div className="crate-detail-cost">
+                            <span style={{ color: prog.coins >= box.cost ? '#ffd700' : '#ff4444' }}>{box.cost} coins</span>
+                          </div>
+                        </div>
+                        <button
+                          className="btn btn-open-crate"
+                          style={{ borderColor: box.color, color: box.color }}
+                          disabled={prog.coins < box.cost}
+                          onClick={() => openBox(box)}
+                        >
+                          OPEN
+                        </button>
+                      </div>
+                      <div className="crate-odds">
+                        <div className="odds-title">DROP RATES</div>
+                        <div className="odds-grid">
+                          {(['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic'] as CosmeticRarity[]).map(r => (
+                            box.rates[r] > 0 ? (
+                              <div key={r} className="odds-item">
+                                <span className="odds-rarity" style={{ color: RARITY_COLORS[r] }}>{RARITY_LABELS[r]}</span>
+                                <span className="odds-pct">{(box.rates[r] * 100).toFixed(1)}%</span>
+                              </div>
+                            ) : null
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+
+                  <div className="pity-info pity-info-full">
+                    <div className="pity-row">
+                      <span className="pity-label">Epic pity: {prog.pityCounter}/{PITY_THRESHOLD}</span>
+                      <div className="pity-bar"><div className="pity-bar-fill pity-epic" style={{ width: `${Math.min((prog.pityCounter / PITY_THRESHOLD) * 100, 100)}%` }} /></div>
+                    </div>
+                    <div className="pity-row">
+                      <span className="pity-label">Legendary pity: {prog.pityCounter}/{LEGENDARY_PITY}</span>
+                      <div className="pity-bar"><div className="pity-bar-fill pity-legendary" style={{ width: `${Math.min((prog.pityCounter / LEGENDARY_PITY) * 100, 100)}%` }} /></div>
+                    </div>
+                    <span className="pity-hint">Counters reset when you receive epic or higher</span>
+                  </div>
+                </div>
+              )}
+
+              {/* ====== COLLECTION VIEW ====== */}
+              {shopView === 'collection' && (
+                <div className="shop-collection">
+                  <div className="cosmetics-tabs">
+                    {(['skin', 'pet', 'trail', 'border', 'deathEffect'] as CosmeticType[]).map(tab => (
+                      <button
+                        key={tab}
+                        className={`cosmetics-tab ${shopTab === tab ? 'active' : ''}`}
+                        onClick={() => setShopTab(tab)}
+                      >
+                        {TAB_ICONS[tab]}
+                        <span>{TAB_LABELS[tab]}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="cosmetics-grid">
+                    {getShopItems().map(item => {
+                      const unlocked = isUnlocked(item.id);
+                      const equipped = isEquipped(item);
+                      return (
+                        <div
+                          key={item.id}
+                          className={`cosmetic-card ${unlocked ? 'unlocked' : 'locked'} ${equipped ? 'equipped' : ''} rarity-${item.rarity}`}
+                          onClick={() => unlocked && equipCosmetic(item)}
+                        >
+                          {rarityDot(item.rarity)}
+                          <div className="cosmetic-name">{item.name}</div>
+                          <div className="cosmetic-rarity" style={{ color: RARITY_COLORS[item.rarity] }}>
+                            {RARITY_LABELS[item.rarity]}
+                          </div>
+                          {!unlocked && item.source === 'box' && (
+                            <div className="cosmetic-lock cosmetic-box-only">CRATE ONLY</div>
+                          )}
+                          {!unlocked && item.source !== 'box' && (
+                            <div className="cosmetic-lock">LVL {item.levelRequired}</div>
+                          )}
+                          {equipped && <div className="cosmetic-equipped-badge">EQUIPPED</div>}
+                          <div className="cosmetic-desc">{item.description}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="cosmetics-progress">
+                    <span>{prog.unlockedCosmetics.length}/{ALL_COSMETICS.length} unlocked</span>
+                    <div className="cosmetics-progress-bar">
+                      <div className="cosmetics-progress-fill" style={{ width: `${(prog.unlockedCosmetics.length / ALL_COSMETICS.length) * 100}%` }} />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ====== DAILY REWARDS VIEW ====== */}
+              {shopView === 'daily' && (
+                <div className="shop-daily">
+                  <div className="daily-streak-header">
+                    <span className="daily-streak-count">{prog.dailyStreak} DAY STREAK</span>
+                    <span className="daily-streak-sub">Log in daily to keep your streak</span>
+                  </div>
+
+                  <div className="daily-grid">
+                    {DAILY_REWARDS.map((reward, idx) => {
+                      const currentDay = getDailyRewardIndex(prog);
+                      const isPast = idx < currentDay;
+                      const isCurrent = idx === currentDay;
+                      const isFuture = idx > currentDay;
+                      return (
+                        <div
+                          key={idx}
+                          className={`daily-card ${isPast ? 'claimed' : ''} ${isCurrent ? 'current' : ''} ${isFuture ? 'future' : ''}`}
+                        >
+                          <div className="daily-day">DAY {reward.day}</div>
+                          <div className="daily-reward-label">{reward.bonusLabel}</div>
+                          {isPast && <div className="daily-check">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#39ff14" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>
+                          </div>}
+                          {isCurrent && !dailyClaimed && (
+                            <button className="btn btn-daily-claim-card" onClick={claimDaily}>CLAIM</button>
+                          )}
+                          {isCurrent && dailyClaimed && (
+                            <div className="daily-check">
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#39ff14" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+            </div>
+          </div>
+        )}
+
+        {/* ==================== LOOT BOX OPENING OVERLAY ==================== */}
+        {openingBox && boxResult && (
+          <div className="box-opening-overlay">
+            <div className="box-opening-modal">
+              {boxAnimPhase === 'spinning' && (
+                <div className="box-spin-container">
+                  <div className="box-spin-title" style={{ color: openingBox.color }}>{openingBox.name}</div>
+                  <div className="box-reel-viewport">
+                    <div className="box-reel-pointer" />
+                    <div className="box-reel-strip">
+                      {reelItems.map((ri, i) => (
+                        <div key={i} className={`reel-item rarity-${ri.rarity}`}>
+                          <span className="reel-item-dot" style={{ background: RARITY_COLORS[ri.rarity] }} />
+                          <span className="reel-item-name">{ri.item.name}</span>
+                          <span className="reel-item-rarity" style={{ color: RARITY_COLORS[ri.rarity] }}>{RARITY_LABELS[ri.rarity]}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {boxAnimPhase === 'reveal' && (
+                <div className={`box-reveal rarity-reveal-${boxResult.rarity}`}>
+                  <div className="reveal-glow" style={{ background: `radial-gradient(circle, ${RARITY_COLORS[boxResult.rarity]}40 0%, transparent 70%)` }} />
+                  <div className="reveal-rarity" style={{ color: RARITY_COLORS[boxResult.rarity] }}>
+                    {RARITY_LABELS[boxResult.rarity]}
+                  </div>
+                  <div className="reveal-name">{boxResult.item.name}</div>
+                  <div className="reveal-type">{boxResult.item.type.toUpperCase()}</div>
+                  <div className="reveal-desc">{boxResult.item.description}</div>
+                  {boxResult.isDuplicate && (
+                    <div className="reveal-duplicate">
+                      DUPLICATE — +{DUPE_REFUND[boxResult.rarity]} coins refunded
+                    </div>
+                  )}
+                  <div className="reveal-actions">
+                    {!boxResult.isDuplicate && (
+                      <button className="btn btn-equip" onClick={() => { equipCosmetic(boxResult.item); closeBoxReveal(); }}>
+                        EQUIP NOW
+                      </button>
+                    )}
+                    <button className="btn btn-reveal-close" onClick={closeBoxReveal}>
+                      {prog.coins >= openingBox.cost ? 'OPEN ANOTHER' : 'CLOSE'}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -329,7 +803,7 @@ export default function MenuScreen({ onPlay, onCreateLobby, onJoinLobby, error, 
                 title="Click to copy code"
               >
                 {lobbyInfo.code}
-                <span className="lobby-code-copy-icon">{copied ? ' ✓' : ' 📋'}</span>
+                <span className="lobby-code-copy-icon">{copied ? ' OK' : ' COPY'}</span>
               </span>
             </div>
             <div className="lobby-players">
@@ -390,7 +864,7 @@ export default function MenuScreen({ onPlay, onCreateLobby, onJoinLobby, error, 
                 </button>
               )}
               {lobbyInfo.hostId !== playerId && (
-                <div className="lobby-host-hint">Waiting for <strong>{lobbyInfo.hostName}</strong> to start…</div>
+                <div className="lobby-host-hint">Waiting for <strong>{lobbyInfo.hostName}</strong> to start...</div>
               )}
             </div>
           </div>
@@ -468,30 +942,29 @@ export default function MenuScreen({ onPlay, onCreateLobby, onJoinLobby, error, 
               </button>
             </div>
 
-            {/* Room code display */}
             {roomCode && (
-            <div className="room-code-display">
-              <span className="room-code-label">ROOM CODE</span>
-              <div className="room-code-value" onClick={handleCopyCode} title="Click to copy">
-                <span className="room-code-text">{roomCode}</span>
-                <span className="room-code-copy">
-                  {copied ? (
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#39ff14" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="20 6 9 17 4 12"></polyline>
-                    </svg>
-                  ) : (
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                    </svg>
-                  )}
-                </span>
+              <div className="room-code-display">
+                <span className="room-code-label">ROOM CODE</span>
+                <div className="room-code-value" onClick={handleCopyCode} title="Click to copy">
+                  <span className="room-code-text">{roomCode}</span>
+                  <span className="room-code-copy">
+                    {copied ? (
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#39ff14" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="20 6 9 17 4 12"></polyline>
+                      </svg>
+                    ) : (
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                      </svg>
+                    )}
+                  </span>
+                </div>
+                {copied && <span className="room-code-copied">Copied!</span>}
               </div>
-              {copied && <span className="room-code-copied">Copied!</span>}
-            </div>
-          )}
+            )}
 
-          {error && <div className="menu-error">{error}</div>}
+            {error && <div className="menu-error">{error}</div>}
           </div>
         )}
 
