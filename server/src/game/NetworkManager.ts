@@ -101,10 +101,11 @@ export class NetworkManager {
     for (const n of nodes) nodeMap.set(n.id, n);
 
     // Build invulnerable set so capture skips protected players
+    // Includes both spawn-invulnerable AND shield-active players
     const invulnerable = this._invulnerable;
     invulnerable.clear();
     for (const p of players) {
-      if (p.invulnTimer > 0) invulnerable.add(p.id);
+      if (p.invulnTimer > 0 || p.shieldActive) invulnerable.add(p.id);
     }
 
     for (const player of players) {
@@ -323,7 +324,7 @@ export class NetworkManager {
     invulnerable.clear();
     if (players) {
       for (const p of players) {
-        if (p.invulnTimer > 0) invulnerable.add(p.id);
+        if (p.invulnTimer > 0 || p.shieldActive) invulnerable.add(p.id);
       }
     }
 

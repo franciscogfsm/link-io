@@ -72,7 +72,7 @@ export default function HUD({ player, state, roomCode, onUseAbility, onUpgrade, 
         </svg>
       ),
       label: 'GUARD',
-      desc: 'Shield all links for 5s',
+      desc: 'Full shield for 8s',
       cost: 30,
       key: 'R',
       color: '#39ff14',

@@ -195,6 +195,7 @@ export interface Player {
   clickStreakTimer: number;     // time left before streak resets
   bestClickStreak: number;      // highest click streak this game
   totalClicks: number;          // total clicks this game
+  shieldActive: boolean;        // GUARD ability active — full protection
 }
 
 export interface KillFeedEntry {

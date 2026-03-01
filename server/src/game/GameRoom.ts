@@ -253,6 +253,7 @@ export class GameRoom {
       clickStreakTimer: 0,
       bestClickStreak: 0,
       totalClicks: 0,
+      shieldActive: false,
     };
 
     this.state.players.push(player);
@@ -446,6 +447,7 @@ export class GameRoom {
     player.linkCount = 0;
     player.lastDamagedBy = null;
     player.abilityCooldowns = { surge: 0, shield: 0, emp: 0, warp: 0 };
+    player.shieldActive = false;
 
     // Team: assign same team
     // (team stays the same across respawns)
@@ -505,7 +507,7 @@ export class GameRoom {
           this.state.nodes.filter((n: GameNode) => n.owner === player.id).map((n: GameNode) => n.id)
         );
         for (const link of this.state.links) {
-          if (link.owner !== player.id) {
+          if (link.owner !== player.id && !link.shielded) {
             const touches = ownedNodeIds.has(link.fromNodeId) || ownedNodeIds.has(link.toNodeId);
             if (touches) {
               link.health -= 35;
@@ -519,6 +521,7 @@ export class GameRoom {
       }
 
       case 'shield': {
+        player.shieldActive = true;
         for (const link of this.state.links) {
           if (link.owner === player.id) {
             link.shielded = true;
@@ -526,6 +529,7 @@ export class GameRoom {
           }
         }
         setTimeout(() => {
+          player.shieldActive = false;
           for (const link of this.state.links) {
             if (link.owner === player.id) {
               link.shielded = false;
@@ -556,8 +560,10 @@ export class GameRoom {
           const dist = Math.sqrt(dx * dx + dy * dy);
 
           if (dist < empRadius) {
-            link.health -= 50;
-            targetNodes.push(link.fromNodeId, link.toNodeId);
+            if (!link.shielded) {
+              link.health -= 50;
+              targetNodes.push(link.fromNodeId, link.toNodeId);
+            }
           }
         }
         this.io.to(this.id).emit('game:screenShake', { intensity: 15, duration: 0.6 });
@@ -1325,8 +1331,8 @@ export class GameRoom {
 
       if (targetCore && coreOwner && coreOwner.alive) {
         attackedCores.add(coreOwner.id);
-        // Don't damage invulnerable players
-        if (coreOwner.invulnTimer > 0) continue;
+        // Don't damage invulnerable or shielded players
+        if (coreOwner.invulnTimer > 0 || coreOwner.shieldActive) continue;
 
         const attacker = playerMap.get(link.owner);
         if (!attacker || !attacker.alive) continue;
@@ -1374,7 +1380,7 @@ export class GameRoom {
     // PROXIMITY DAMAGE — enemy nodes near your core deal passive damage
     // This prevents isolated players (no links) from being invincible
     for (const player of this.state.players) {
-      if (!player.alive || player.invulnTimer > 0) continue;
+      if (!player.alive || player.invulnTimer > 0 || player.shieldActive) continue;
       const coreNode = nodeMap.get(player.coreNodeId);
       if (!coreNode) continue;
 
@@ -1566,6 +1572,7 @@ export class GameRoom {
         nodesStolen: p.nodesStolen,
         longestChain: p.longestChain,
         peakNodeCount: p.peakNodeCount,
+        shieldActive: p.shieldActive,
         // Stripped: lastKilledBy, lastDamagedBy, bestClickStreak,
         //          totalClicks, totalEnergyGenerated, assists
       });
