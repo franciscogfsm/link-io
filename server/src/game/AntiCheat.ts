@@ -6,8 +6,8 @@ import type { GameNode, GameLink, Player } from '../../../shared/types.js';
 
 export class AntiCheat {
   private actionCooldowns = new Map<string, number>();
-  private minActionInterval = 100; // ms between actions
-  private maxLinkDistance = 380; // slightly more than game allows for latency
+  private minActionInterval = 50; // ms — snappy linking
+  private maxLinkDistance = 400; // slightly more than game allows for latency
 
   validateLinkCreation(
     playerId: string,

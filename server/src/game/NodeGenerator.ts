@@ -1,6 +1,7 @@
 // ============================================================
 // LINK.IO Server - Node Generator
 // Procedural floating node spawning with special nodes
+// Spawn logic guarantees players start near reachable nodes
 // ============================================================
 
 import { v4 as uuidv4 } from 'uuid';
@@ -9,7 +10,7 @@ import type { GameNode, Vec2 } from '../../../shared/types.js';
 export class NodeGenerator {
   private arenaWidth: number;
   private arenaHeight: number;
-  private minDistance = 100;
+  private minDistance = 90;
 
   constructor(arenaWidth: number, arenaHeight: number) {
     this.arenaWidth = arenaWidth;
@@ -23,7 +24,7 @@ export class NodeGenerator {
 
     while (nodes.length < count && attempts < maxAttempts) {
       attempts++;
-      const margin = 200;
+      const margin = 150;
       const pos: Vec2 = {
         x: margin + Math.random() * (this.arenaWidth - margin * 2),
         y: margin + Math.random() * (this.arenaHeight - margin * 2),
@@ -74,28 +75,76 @@ export class NodeGenerator {
     };
   }
 
+  /**
+   * Find a spawn position that is:
+   * - NEAR neutral (unowned) nodes so the player can immediately link
+   * - FAR from other players' cores
+   * - Has at least 3 neutral nodes within link range (350px)
+   */
   getSpawnPosition(existingNodes: GameNode[]): Vec2 {
-    let bestPos: Vec2 = { x: this.arenaWidth / 2, y: this.arenaHeight / 2 };
-    let bestMinDist = 0;
+    const LINK_RANGE = 320; // slightly less than max link distance
+    const playerCores = existingNodes.filter((n) => n.isCore && n.owner);
+    const neutralNodes = existingNodes.filter((n) => !n.owner && !n.isCore);
 
-    for (let i = 0; i < 50; i++) {
-      const margin = 300;
+    let bestPos: Vec2 = { x: this.arenaWidth / 2, y: this.arenaHeight / 2 };
+    let bestScore = -Infinity;
+
+    for (let i = 0; i < 200; i++) {
+      const margin = 250;
       const pos: Vec2 = {
         x: margin + Math.random() * (this.arenaWidth - margin * 2),
         y: margin + Math.random() * (this.arenaHeight - margin * 2),
       };
 
-      let minDist = Infinity;
-      for (const node of existingNodes) {
+      // Count neutral nodes within link range
+      let nearbyNeutral = 0;
+      let closestNeutralDist = Infinity;
+      for (const node of neutralNodes) {
         const dx = node.position.x - pos.x;
         const dy = node.position.y - pos.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < minDist) minDist = dist;
+        if (dist < LINK_RANGE) nearbyNeutral++;
+        if (dist < closestNeutralDist) closestNeutralDist = dist;
       }
 
-      if (minDist > bestMinDist && minDist > 200) {
-        bestMinDist = minDist;
+      // Minimum distance to any player core (we want to be far from enemies)
+      let minCoreDist = Infinity;
+      for (const core of playerCores) {
+        const dx = core.position.x - pos.x;
+        const dy = core.position.y - pos.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < minCoreDist) minCoreDist = dist;
+      }
+
+      // Score: heavily reward nearby neutrals, reward distance from cores
+      // Require at least 3 nearby neutrals for a valid spawn
+      if (nearbyNeutral < 3) continue;
+
+      const score =
+        nearbyNeutral * 100 +         // lots of nearby nodes = good
+        minCoreDist * 0.5 -            // far from enemies = good
+        closestNeutralDist * 2;        // close to nearest node = good
+
+      if (score > bestScore) {
+        bestScore = score;
         bestPos = pos;
+      }
+    }
+
+    // Fallback: if no good position found, pick center of densest neutral cluster
+    if (bestScore === -Infinity && neutralNodes.length > 0) {
+      let maxDensity = 0;
+      for (const node of neutralNodes) {
+        let density = 0;
+        for (const other of neutralNodes) {
+          const dx = other.position.x - node.position.x;
+          const dy = other.position.y - node.position.y;
+          if (Math.sqrt(dx * dx + dy * dy) < LINK_RANGE) density++;
+        }
+        if (density > maxDensity) {
+          maxDensity = density;
+          bestPos = { x: node.position.x, y: node.position.y };
+        }
       }
     }
 

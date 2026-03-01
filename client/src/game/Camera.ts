@@ -1,6 +1,7 @@
 // ============================================================
 // LINK.IO Client - Camera System
-// Free-look panning, zoom, smooth following, snap-back
+// Full free-look panning, zoom, SPACE to snap back
+// No auto-reset — player controls the camera freely
 // ============================================================
 
 export class Camera {
@@ -20,16 +21,10 @@ export class Camera {
   private camStartY = 0;
   private canvas: HTMLCanvasElement;
 
-  // Free-look mode: when the player pans, stop auto-following
+  // Free-look: once player pans, camera stays where they put it
   private _freeLook = false;
-  private freeLookTimer = 0;
-  private freeLookTimeout = 4; // seconds before auto-snap back
-  private coreX = 0; // last known core position
+  private coreX = 0;
   private coreY = 0;
-
-  // Edge pan: auto-pan when mouse is near edges during drag
-  private mouseScreenX = 0;
-  private mouseScreenY = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -56,16 +51,12 @@ export class Camera {
         this.dragStartY = e.clientY;
         this.camStartX = this.targetX;
         this.camStartY = this.targetY;
-        this._freeLook = true; // Enter free look on pan
-        this.freeLookTimer = 0;
+        this._freeLook = true;
         e.preventDefault();
       }
     });
 
     window.addEventListener('mousemove', (e) => {
-      this.mouseScreenX = e.clientX;
-      this.mouseScreenY = e.clientY;
-
       if (this.isDragging) {
         const dx = (e.clientX - this.dragStartX) / this.zoom;
         const dy = (e.clientY - this.dragStartY) / this.zoom;
@@ -82,14 +73,13 @@ export class Camera {
 
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
-    // Space to snap back to core
+    // SPACE = snap back to core
     window.addEventListener('keydown', (e) => {
       if (e.code === 'Space' && !e.repeat) {
         e.preventDefault();
         this._freeLook = false;
         this.targetX = this.coreX;
         this.targetY = this.coreY;
-        this.freeLookTimer = 0;
       }
     });
   }
@@ -98,23 +88,15 @@ export class Camera {
     this.coreX = worldX;
     this.coreY = worldY;
 
+    // Only auto-follow when NOT in free-look
     if (!this._freeLook && !this.isDragging) {
       this.targetX = worldX;
       this.targetY = worldY;
     }
   }
 
-  update(deltaTime = 0.016): void {
-    // Auto snap back after timeout
-    if (this._freeLook && !this.isDragging) {
-      this.freeLookTimer += deltaTime;
-      if (this.freeLookTimer >= this.freeLookTimeout) {
-        this._freeLook = false;
-        this.targetX = this.coreX;
-        this.targetY = this.coreY;
-      }
-    }
-
+  update(_deltaTime = 0.016): void {
+    // No auto-reset — camera stays where the player put it
     this.x += (this.targetX - this.x) * this.smoothing;
     this.y += (this.targetY - this.y) * this.smoothing;
     this.zoom += (this.targetZoom - this.zoom) * this.smoothing;

@@ -7,12 +7,14 @@ import { v4 as uuidv4 } from 'uuid';
 import type { GameNode, GameLink, Player } from '../../../shared/types.js';
 
 export class NetworkManager {
-  private linkCostBase = 8;
-  private linkCostPerDistance = 0.015;
+  private linkCostBase = 6;
+  private linkCostPerDistance = 0.012;
   private maxLinkDistance = 350;
-  private baseEnergyPerNode = 2; // per second
-  private combatDamagePerSecond = 20; // more aggressive combat!
-  private networkBonusMultiplier = 0.15; // bonus per connected node
+  private baseEnergyPerNode = 2.5;
+  private combatDamagePerSecond = 25;
+  private networkBonusMultiplier = 0.15;
+  private captureSpeed = 25; // % per second — 4s to capture a node
+  private siphonRate = 3; // energy stolen per second per attacking link
 
   createLink(
     fromNodeId: string,
@@ -26,16 +28,14 @@ export class NetworkManager {
     const toNode = nodes.find((n) => n.id === toNodeId);
     if (!fromNode || !toNode) return null;
 
-    // Check distance
     const dx = toNode.position.x - fromNode.position.x;
     const dy = toNode.position.y - fromNode.position.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
     if (distance > this.maxLinkDistance) return null;
 
-    // Must own source node or it's the core
     if (fromNode.owner !== playerId) return null;
 
-    // Check duplicate link
+    // No duplicate links
     const existingLink = links.find(
       (l) =>
         (l.fromNodeId === fromNodeId && l.toNodeId === toNodeId) ||
@@ -43,17 +43,15 @@ export class NetworkManager {
     );
     if (existingLink) return null;
 
-    // Calculate cost
-    const cost = this.linkCostBase + distance * this.linkCostPerDistance;
+    // Cost: attacking enemy nodes costs more
+    const isEnemyNode = toNode.owner !== null && toNode.owner !== playerId;
+    const attackMultiplier = isEnemyNode ? 1.8 : 1.0;
+    const cost = (this.linkCostBase + distance * this.linkCostPerDistance) * attackMultiplier;
     if (player.energy < cost) return null;
 
-    // Deduct energy
     player.energy -= cost;
 
-    // Check if target node belongs to enemy (combat)
-    const isEnemyNode = toNode.owner !== null && toNode.owner !== playerId;
-
-    // Claim the target node if neutral
+    // Claim neutral nodes immediately
     if (toNode.owner === null) {
       toNode.owner = playerId;
     }
@@ -63,16 +61,11 @@ export class NetworkManager {
       fromNodeId,
       toNodeId,
       owner: playerId,
-      health: 100,
+      health: isEnemyNode ? 60 : 100,
       maxHealth: 100,
       energyFlow: 0,
       shielded: false,
     };
-
-    // If connecting to enemy node, create an attacking link
-    if (isEnemyNode) {
-      link.health = 50; // attacking links are weaker
-    }
 
     return link;
   }
@@ -86,21 +79,16 @@ export class NetworkManager {
     for (const player of players) {
       if (!player.alive) continue;
 
-      // Count player's connected nodes
       const ownedNodes = nodes.filter((n) => n.owner === player.id);
       const nodeCount = ownedNodes.length;
       const linkCount = links.filter((l) => l.owner === player.id).length;
 
-      // Network bonus: larger networks generate exponentially more energy!
-      // This rewards aggressive expansion
+      // Network bonus
       const networkMultiplier = 1 + (nodeCount - 1) * this.networkBonusMultiplier;
-      
-      // Territory control bonus: owning many nodes gives extra per-tick energy  
       const territoryBonus = nodeCount >= 10 ? 3 : nodeCount >= 5 ? 1.5 : 0;
 
       for (const node of ownedNodes) {
         if (!node.isCore) {
-          // Power nodes give 3x, Mega nodes give 5x energy!
           const nodeMultiplier = node.isMegaNode ? 5 : node.isPowerNode ? 3 : 1;
           const generation = (this.baseEnergyPerNode * networkMultiplier * nodeMultiplier + territoryBonus) * deltaTime;
           player.energy += generation;
@@ -111,16 +99,49 @@ export class NetworkManager {
       // Core always generates a base amount
       const coreNode = ownedNodes.find((n) => n.isCore);
       if (coreNode) {
-        player.energy += 1 * deltaTime;
+        player.energy += 1.5 * deltaTime;
       }
 
-      // Update player stats
       player.nodeCount = nodeCount;
       player.linkCount = linkCount;
       player.energy = Math.min(player.energy, 999);
     }
 
-    // Energy flows through links (visual)
+    // NODE CAPTURE: links connecting to enemy nodes gradually steal them
+    for (const link of links) {
+      const toNode = nodes.find((n) => n.id === link.toNodeId);
+      if (!toNode || toNode.isCore) continue;
+
+      // If this link reaches an enemy node, start capture
+      if (toNode.owner !== null && toNode.owner !== link.owner && !link.shielded) {
+        // Reduce node "loyalty" (stored in energy) then flip ownership
+        toNode.energy -= this.captureSpeed * deltaTime;
+        if (toNode.energy <= 0) {
+          const previousOwner = toNode.owner;
+          toNode.owner = link.owner;
+          toNode.energy = 20;
+
+          // Remove all links from the previous owner to this node
+          for (let i = links.length - 1; i >= 0; i--) {
+            if (links[i].owner === previousOwner &&
+                (links[i].fromNodeId === toNode.id || links[i].toNodeId === toNode.id)) {
+              links.splice(i, 1);
+            }
+          }
+        }
+
+        // Siphon: steal energy from enemy while attacking
+        const enemyPlayer = players.find((p) => p.id === toNode.owner);
+        const attacker = players.find((p) => p.id === link.owner);
+        if (enemyPlayer && attacker && enemyPlayer.energy > 0) {
+          const siphon = Math.min(this.siphonRate * deltaTime, enemyPlayer.energy);
+          enemyPlayer.energy -= siphon;
+          attacker.energy += siphon * 0.7; // 70% efficiency
+        }
+      }
+    }
+
+    // Energy flow visual
     for (const link of links) {
       link.energyFlow = Math.sin(Date.now() * 0.003) * 0.5 + 0.5;
     }

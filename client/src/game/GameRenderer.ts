@@ -500,7 +500,7 @@ export class GameRenderer {
       ctx.fillStyle = '#ff00ff';
       ctx.globalAlpha = megaPulse;
       ctx.textAlign = 'center';
-      ctx.fillText('⚡ MEGA', x, y - node.radius - 12);
+      ctx.fillText('MEGA', x, y - node.radius - 12);
       ctx.globalAlpha = 1;
     }
 

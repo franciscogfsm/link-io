@@ -11,11 +11,11 @@ interface LeaderboardProps {
 }
 
 function getStreakIcon(streak: number): string {
-  if (streak >= 15) return '💀';
-  if (streak >= 10) return '👑';
-  if (streak >= 7) return '⚡';
-  if (streak >= 5) return '🔥';
-  if (streak >= 3) return '✦';
+  if (streak >= 15) return '>>>>';
+  if (streak >= 10) return '>>>';
+  if (streak >= 7) return '>>';
+  if (streak >= 5) return '>';
+  if (streak >= 3) return '*';
   return '';
 }
 

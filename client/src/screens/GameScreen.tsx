@@ -270,7 +270,7 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
         const color = player ? getPlayerColor(player.color).main : '#00f0ff';
         renderer.particles.spawnRespawnEffect(data.position.x, data.position.y, color);
         if (data.playerId === playerId) {
-          renderer.addFloatingText('⚡ RESPAWNED!', data.position.x, data.position.y - 40, '#00f0ff', 24);
+          renderer.addFloatingText('RESPAWNED!', data.position.x, data.position.y - 40, '#00f0ff', 24);
         }
       }
     });
@@ -288,7 +288,7 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
           const coreNode = state.nodes.find((n) => n.id === player.coreNodeId);
           if (coreNode) {
             renderer.addFloatingText(
-              `🔥 ${data.label}! (${data.streak})`,
+              `${data.label}! (${data.streak})`,
               coreNode.position.x,
               coreNode.position.y - 60,
               '#ffbe0b',
@@ -398,7 +398,7 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
           <div className="death-title">ELIMINATED</div>
           {deathInfo && (
             <div className="death-killer">
-              {deathInfo.isRevenge ? '💀 Revenge by ' : 'Killed by '}
+              {deathInfo.isRevenge ? 'Revenge by ' : 'Killed by '}
               <span className="death-killer-name">{deathInfo.killerName}</span>
             </div>
           )}
@@ -412,7 +412,7 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
       {/* Kill streak announcement */}
       {killStreakAnnouncement && (
         <div className="streak-announcement">
-          <div className="streak-label">🔥 {killStreakAnnouncement.label} 🔥</div>
+          <div className="streak-label">{killStreakAnnouncement.label}</div>
           <div className="streak-count">{killStreakAnnouncement.streak} kills</div>
         </div>
       )}
@@ -432,8 +432,17 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
       {isWaiting && (
         <div className="waiting-overlay">
           <div className="waiting-text">Waiting for players...</div>
-          <div className="waiting-code">{roomCode}</div>
-          <div className="waiting-hint">Share this code with friends to join!</div>
+          <div
+            className="waiting-code"
+            onClick={() => {
+              navigator.clipboard.writeText(roomCode).catch(() => {});
+            }}
+            title="Click to copy"
+            style={{ cursor: 'pointer' }}
+          >
+            {roomCode}
+          </div>
+          <div className="waiting-hint">Click the code to copy it. Share with friends!</div>
         </div>
       )}
 
@@ -442,9 +451,9 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
       )}
 
       {/* Controls hint */}
-      {!showTutorial && !isWaiting && (
+      {!showTutorial && !isWaiting && !isDead && (
         <div className="emote-hint">
-          [1] [2] [3] [4] = Emotes | [Q] [W] [E] = Abilities
+          [1-4] Emotes | [Q] Surge [W] Shield [E] EMP | [SPACE] Snap camera | Right-click Pan
         </div>
       )}
     </div>
