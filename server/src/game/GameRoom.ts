@@ -1625,14 +1625,20 @@ export class GameRoom {
     console.log(`[LINK.IO] GAME ENDED! Room ${this.code}`);
     console.log(`[LINK.IO] Scores: ${sortedPlayers.map((p: Player) => `${p.name}:${Math.floor(p.score)}`).join(', ')}`);
 
-    // Calculate XP for each player
+    // Calculate XP for each player — XP is HARD to earn
     for (const player of sortedPlayers) {
-      let xp = 50; // base XP for playing
-      xp += Math.floor(player.score * 0.1); // score-based XP
-      xp += player.killCount * 20; // kills
-      xp += Math.floor(player.bestStreak * 15); // streaks
-      if (this.gameMode === 'teams' && winningTeam && player.team === winningTeam) xp += 100;
-      if (sortedPlayers[0]?.id === player.id) xp += 150; // winner bonus
+      let xp = 15; // tiny base XP for playing
+      xp += Math.floor(player.score * 0.02); // only 2% of score becomes XP
+      xp += player.killCount * 8; // kills give decent XP
+      xp += Math.floor(player.bestStreak * 5); // streaks
+      xp += Math.min(player.nodesStolen * 2, 20); // stealing nodes, capped
+      if (this.gameMode === 'teams' && winningTeam && player.team === winningTeam) xp += 30;
+      if (sortedPlayers[0]?.id === player.id) xp += 50; // winner bonus
+      // Long game bonus (diminishing)
+      const gameMins = Math.floor((GAME_DURATION - this.state.timeRemaining) / 60);
+      xp += Math.min(gameMins * 3, 15);
+      // Cap max XP per game so grinding feels slow
+      xp = Math.min(xp, 150);
 
       const socket = this.sockets.get(player.id);
       socket?.emit('game:ended', {

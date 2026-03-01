@@ -7,6 +7,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type { Socket } from 'socket.io-client';
 import type { ServerToClientEvents, ClientToServerEvents, Player, GameMode, LobbyInfo, PlayerProgression } from '../../shared/types';
+import { getLevelFromXP, xpToNextLevel, xpForLevel, LEVEL_TITLES, ALL_COSMETICS } from '../../shared/types';
 import { socketManager } from './network/SocketManager';
 import MenuScreen from './screens/MenuScreen';
 import GameScreen from './screens/GameScreen';
@@ -14,23 +15,31 @@ import GameOverScreen from './screens/GameOverScreen';
 
 type Screen = 'menu' | 'game' | 'gameover';
 
-// XP / Progression helpers
-const XP_PER_LEVEL = 500;
-const LEVEL_TITLES: [number, string][] = [
-  [1, 'Newcomer'], [3, 'Node Runner'], [5, 'Link Master'],
-  [8, 'Network Architect'], [12, 'Grid Commander'], [15, 'Cyber Warlord'],
-  [20, 'Singularity'], [25, 'Digital God'], [30, 'TRANSCENDED'],
-];
+// XP / Progression helpers (uses scaling from shared types)
 
 function loadProgression(): PlayerProgression {
   try {
     const data = localStorage.getItem('linkio-progression');
-    if (data) return JSON.parse(data);
+    if (data) {
+      const parsed = JSON.parse(data);
+      // Migrate old format
+      if (!parsed.equippedSkin) parsed.equippedSkin = 'skin_default';
+      if (!parsed.equippedPet) parsed.equippedPet = 'pet_none';
+      if (!parsed.equippedTrail) parsed.equippedTrail = 'trail_none';
+      if (!parsed.equippedBorder) parsed.equippedBorder = 'border_none';
+      if (!parsed.unlockedCosmetics) parsed.unlockedCosmetics = ['skin_default', 'pet_none', 'trail_none', 'border_none'];
+      return parsed;
+    }
   } catch { /* ignore */ }
   return {
     xp: 0, level: 1, gamesPlayed: 0, totalKills: 0,
     totalWins: 0, bestStreak: 0, longestGame: 0,
     titles: ['Newcomer'], currentTitle: 'Newcomer',
+    equippedSkin: 'skin_default',
+    equippedPet: 'pet_none',
+    equippedTrail: 'trail_none',
+    equippedBorder: 'border_none',
+    unlockedCosmetics: ['skin_default', 'pet_none', 'trail_none', 'border_none'],
   };
 }
 
@@ -45,7 +54,7 @@ function addXP(xp: number, kills: number, won: boolean, bestStreak: number): Pla
   prog.totalKills += kills;
   if (won) prog.totalWins++;
   if (bestStreak > prog.bestStreak) prog.bestStreak = bestStreak;
-  prog.level = Math.floor(prog.xp / XP_PER_LEVEL) + 1;
+  prog.level = getLevelFromXP(prog.xp);
 
   // Unlock titles
   let currentTitle = 'Newcomer';
@@ -56,6 +65,13 @@ function addXP(xp: number, kills: number, won: boolean, bestStreak: number): Pla
     }
   }
   prog.currentTitle = currentTitle;
+
+  // Auto-unlock cosmetics based on level
+  for (const item of ALL_COSMETICS) {
+    if (prog.level >= item.levelRequired && !prog.unlockedCosmetics.includes(item.id)) {
+      prog.unlockedCosmetics.push(item.id);
+    }
+  }
 
   saveProgression(prog);
   return prog;

@@ -275,9 +275,39 @@ export interface PlayerProgression {
   longestGame: number;
   titles: string[]; // unlocked titles
   currentTitle: string;
+  equippedSkin: string;
+  equippedPet: string;
+  equippedTrail: string;
+  equippedBorder: string;
+  unlockedCosmetics: string[]; // ids of unlocked cosmetics
 }
 
-export const XP_PER_LEVEL = 500;
+// XP is HARD to earn — scaling per level
+export const XP_PER_LEVEL = 800;  // base XP per level
+export const XP_LEVEL_SCALING = 1.15;  // each level requires 15% more
+export function xpForLevel(level: number): number {
+  // Total XP needed to reach this level
+  let total = 0;
+  for (let i = 1; i < level; i++) {
+    total += Math.floor(XP_PER_LEVEL * Math.pow(XP_LEVEL_SCALING, i - 1));
+  }
+  return total;
+}
+export function xpToNextLevel(level: number): number {
+  return Math.floor(XP_PER_LEVEL * Math.pow(XP_LEVEL_SCALING, level - 1));
+}
+export function getLevelFromXP(totalXP: number): number {
+  let level = 1;
+  let xpNeeded = 0;
+  while (true) {
+    const cost = Math.floor(XP_PER_LEVEL * Math.pow(XP_LEVEL_SCALING, level - 1));
+    if (xpNeeded + cost > totalXP) break;
+    xpNeeded += cost;
+    level++;
+  }
+  return level;
+}
+
 export const LEVEL_TITLES: [number, string][] = [
   [1, 'Newcomer'],
   [3, 'Node Runner'],
@@ -288,6 +318,82 @@ export const LEVEL_TITLES: [number, string][] = [
   [20, 'Singularity'],
   [25, 'Digital God'],
   [30, 'TRANSCENDED'],
+  [40, 'BEYOND'],
+  [50, 'ETERNAL'],
+];
+
+// ============================================================
+// COSMETICS & UNLOCKABLES
+// ============================================================
+
+export type CosmeticType = 'skin' | 'pet' | 'trail' | 'border';
+
+export interface CosmeticItem {
+  id: string;
+  name: string;
+  type: CosmeticType;
+  description: string;
+  levelRequired: number;
+  rarity: 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
+  icon: string; // emoji
+  preview?: string; // for rendering hints
+}
+
+export const RARITY_COLORS: Record<string, string> = {
+  common: '#aaaaaa',
+  uncommon: '#39ff14',
+  rare: '#00c8ff',
+  epic: '#b44aff',
+  legendary: '#ffd700',
+};
+
+export const ALL_COSMETICS: CosmeticItem[] = [
+  // ======== SKINS (change core node appearance) ========
+  { id: 'skin_default',   name: 'Standard',      type: 'skin', description: 'Default core look',               levelRequired: 1,  rarity: 'common',    icon: '⬤' },
+  { id: 'skin_hexagon',   name: 'Hexagon',        type: 'skin', description: 'Hexagonal core shape',            levelRequired: 3,  rarity: 'common',    icon: '⬡' },
+  { id: 'skin_diamond',   name: 'Diamond',        type: 'skin', description: 'Diamond-shaped core',             levelRequired: 5,  rarity: 'uncommon',  icon: '◆' },
+  { id: 'skin_star',      name: 'Starborn',       type: 'skin', description: 'Star-shaped pulsing core',        levelRequired: 8,  rarity: 'uncommon',  icon: '★' },
+  { id: 'skin_pulse',     name: 'Pulse Ring',     type: 'skin', description: 'Radiating pulse rings',           levelRequired: 12, rarity: 'rare',      icon: '◎' },
+  { id: 'skin_void',      name: 'Void Core',      type: 'skin', description: 'Dark matter swirling core',       levelRequired: 16, rarity: 'rare',      icon: '◉' },
+  { id: 'skin_plasma',    name: 'Plasma',         type: 'skin', description: 'Crackling plasma energy',         levelRequired: 20, rarity: 'epic',      icon: '⚡' },
+  { id: 'skin_galaxy',    name: 'Galaxy',         type: 'skin', description: 'Miniature galaxy spins inside',   levelRequired: 25, rarity: 'epic',      icon: '🌀' },
+  { id: 'skin_phoenix',   name: 'Phoenix',        type: 'skin', description: 'Fiery rebirth aura',              levelRequired: 30, rarity: 'legendary', icon: '🔥' },
+  { id: 'skin_glitch',    name: 'GLITCH',         type: 'skin', description: 'Reality-breaking distortion',     levelRequired: 40, rarity: 'legendary', icon: '👾' },
+  { id: 'skin_omega',     name: 'OMEGA',          type: 'skin', description: 'The ultimate core skin',          levelRequired: 50, rarity: 'legendary', icon: 'Ω' },
+
+  // ======== PETS (orbit around your core) ========
+  { id: 'pet_none',       name: 'No Pet',         type: 'pet',  description: 'No pet equipped',                 levelRequired: 1,  rarity: 'common',    icon: '—' },
+  { id: 'pet_orb',        name: 'Spark Orb',      type: 'pet',  description: 'Tiny glowing orb follows you',    levelRequired: 4,  rarity: 'common',    icon: '✦' },
+  { id: 'pet_cube',       name: 'Holo Cube',      type: 'pet',  description: 'Rotating holographic cube',       levelRequired: 7,  rarity: 'uncommon',  icon: '◻' },
+  { id: 'pet_drone',      name: 'Mini Drone',     type: 'pet',  description: 'Buzzing little drone buddy',      levelRequired: 10, rarity: 'uncommon',  icon: '🤖' },
+  { id: 'pet_skull',      name: 'Ghost Skull',    type: 'pet',  description: 'Spectral skull orbits you',       levelRequired: 14, rarity: 'rare',      icon: '💀' },
+  { id: 'pet_star',       name: 'Star Fragment',  type: 'pet',  description: 'Twinkling star shard',            levelRequired: 18, rarity: 'rare',      icon: '⭐' },
+  { id: 'pet_dragon',     name: 'Pixel Dragon',   type: 'pet',  description: 'Tiny dragon circles your core',   levelRequired: 22, rarity: 'epic',      icon: '🐲' },
+  { id: 'pet_eye',        name: 'All-Seeing Eye', type: 'pet',  description: 'Watching… always watching',       levelRequired: 28, rarity: 'epic',      icon: '👁' },
+  { id: 'pet_blackhole',  name: 'Black Hole',     type: 'pet',  description: 'Miniature singularity',           levelRequired: 35, rarity: 'legendary', icon: '🕳' },
+  { id: 'pet_crown',      name: 'Royal Crown',    type: 'pet',  description: 'Floating golden crown',           levelRequired: 45, rarity: 'legendary', icon: '👑' },
+
+  // ======== TRAILS (particles behind your core movement) ========
+  { id: 'trail_none',     name: 'No Trail',       type: 'trail', description: 'No trail effect',                levelRequired: 1,  rarity: 'common',    icon: '—' },
+  { id: 'trail_spark',    name: 'Sparks',         type: 'trail', description: 'Small spark particles',          levelRequired: 3,  rarity: 'common',    icon: '✧' },
+  { id: 'trail_smoke',    name: 'Smoke',          type: 'trail', description: 'Wispy smoke trail',              levelRequired: 6,  rarity: 'uncommon',  icon: '💨' },
+  { id: 'trail_fire',     name: 'Fire Trail',     type: 'trail', description: 'Blazing fire behind you',        levelRequired: 11, rarity: 'uncommon',  icon: '🔥' },
+  { id: 'trail_rainbow',  name: 'Prismatic',      type: 'trail', description: 'Rainbow chromatic trail',        levelRequired: 15, rarity: 'rare',      icon: '🌈' },
+  { id: 'trail_lightning', name: 'Lightning',     type: 'trail', description: 'Electric bolts trail',           levelRequired: 19, rarity: 'rare',      icon: '⚡' },
+  { id: 'trail_ice',      name: 'Frost',          type: 'trail', description: 'Icy crystalline particles',      levelRequired: 24, rarity: 'epic',      icon: '❄' },
+  { id: 'trail_void',     name: 'Void Wake',      type: 'trail', description: 'Dark matter distortion',         levelRequired: 32, rarity: 'epic',      icon: '🌑' },
+  { id: 'trail_galaxy',   name: 'Stardust',       type: 'trail', description: 'Cosmic stardust particles',      levelRequired: 42, rarity: 'legendary', icon: '✨' },
+
+  // ======== BORDERS (glow ring around your core) ========
+  { id: 'border_none',    name: 'No Border',      type: 'border', description: 'Default border',                levelRequired: 1,  rarity: 'common',    icon: '○' },
+  { id: 'border_thin',    name: 'Sharp Ring',     type: 'border', description: 'Thin bright ring',              levelRequired: 2,  rarity: 'common',    icon: '◯' },
+  { id: 'border_double',  name: 'Double Ring',    type: 'border', description: 'Two concentric rings',          levelRequired: 6,  rarity: 'uncommon',  icon: '◎' },
+  { id: 'border_dashed',  name: 'Dashed',         type: 'border', description: 'Rotating dashed border',        levelRequired: 9,  rarity: 'uncommon',  icon: '◌' },
+  { id: 'border_gear',    name: 'Gear Ring',      type: 'border', description: 'Spinning gear teeth border',    levelRequired: 13, rarity: 'rare',      icon: '⚙' },
+  { id: 'border_flame',   name: 'Flame Halo',     type: 'border', description: 'Fiery animated border',         levelRequired: 17, rarity: 'rare',      icon: '🔥' },
+  { id: 'border_pulse',   name: 'Pulse Wave',     type: 'border', description: 'Pulsating wave ring',           levelRequired: 23, rarity: 'epic',      icon: '〇' },
+  { id: 'border_holo',    name: 'Holographic',    type: 'border', description: 'Shifting holographic ring',     levelRequired: 33, rarity: 'epic',      icon: '💠' },
+  { id: 'border_divine',  name: 'Divine Aura',    type: 'border', description: 'Golden divine radiance',        levelRequired: 48, rarity: 'legendary', icon: '🌟' },
 ];
 
 // ============================================================

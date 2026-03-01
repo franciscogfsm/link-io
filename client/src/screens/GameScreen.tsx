@@ -7,9 +7,10 @@ import { useRef, useEffect, useState, useCallback } from 'react';
 import type { Socket } from 'socket.io-client';
 import type {
   GameState, ServerToClientEvents, ClientToServerEvents,
-  Player, GameLink, KillFeedEntry, AbilityType, UpgradeType
+  Player, GameLink, KillFeedEntry, AbilityType, UpgradeType, PlayerProgression
 } from '../../../shared/types';
 import { GameRenderer } from '../game/GameRenderer';
+import type { PlayerCosmetics } from '../game/GameRenderer';
 import { setInvulnerablePlayers, setDeadPlayers } from '../game/GameRenderer';
 import { Camera } from '../game/Camera';
 import { InputHandler } from '../game/InputHandler';
@@ -104,6 +105,20 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
     rendererRef.current = renderer;
     inputRef.current = input;
     interpRef.current = interp;
+
+    // Load and apply local player cosmetics
+    try {
+      const progData = localStorage.getItem('linkio-progression');
+      if (progData) {
+        const prog = JSON.parse(progData) as PlayerProgression;
+        renderer.setPlayerCosmetics(playerId, {
+          skin: prog.equippedSkin || 'skin_default',
+          pet: prog.equippedPet || 'pet_none',
+          trail: prog.equippedTrail || 'trail_none',
+          border: prog.equippedBorder || 'border_none',
+        });
+      }
+    } catch { /* ignore */ }
 
     input.setPlayerId(playerId);
     input.setOnCreateLink(handleCreateLink);

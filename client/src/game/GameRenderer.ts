@@ -3,7 +3,7 @@
 // Canvas 2D: starfield, nodes, links, particles, effects
 // ============================================================
 
-import type { GameState, GameNode, GameLink, Player, Vec2 } from '../../../shared/types';
+import type { GameState, GameNode, GameLink, Player, Vec2, CosmeticType } from '../../../shared/types';
 
 /** Set of player IDs currently invulnerable (managed by GameScreen). */
 let invulnerablePlayerIds: Set<string> = new Set();
@@ -32,6 +32,13 @@ interface EmoteDisplay {
   emote: string; position: Vec2; life: number;
 }
 
+export interface PlayerCosmetics {
+  skin: string;
+  pet: string;
+  trail: string;
+  border: string;
+}
+
 export class GameRenderer {
   private ctx: CanvasRenderingContext2D;
   private canvas: HTMLCanvasElement;
@@ -48,6 +55,12 @@ export class GameRenderer {
   private emotes: EmoteDisplay[] = [];
   private lastCanvasW = 0;
   private lastCanvasH = 0;
+  private playerCosmetics: Map<string, PlayerCosmetics> = new Map();
+  private trailPositions: Map<string, Vec2[]> = new Map();
+
+  setPlayerCosmetics(playerId: string, cosmetics: PlayerCosmetics): void {
+    this.playerCosmetics.set(playerId, cosmetics);
+  }
 
   constructor(canvas: HTMLCanvasElement, camera: Camera) {
     this.canvas = canvas;
@@ -169,6 +182,26 @@ export class GameRenderer {
       }
     }
     this.particles.render(ctx);
+
+    // COSMETIC TRAILS — update trail positions for core nodes & render trails
+    for (const node of state.nodes) {
+      if (node.isCore && node.owner) {
+        const cosmetics = this.playerCosmetics.get(node.owner);
+        if (cosmetics && cosmetics.trail !== 'trail_none') {
+          let trail = this.trailPositions.get(node.owner);
+          if (!trail) {
+            trail = [];
+            this.trailPositions.set(node.owner, trail);
+          }
+          trail.unshift({ x: node.position.x, y: node.position.y });
+          if (trail.length > 30) trail.pop();
+
+          const player = state.players.find(p => p.id === node.owner);
+          const colors = player ? getPlayerColor(player.color) : NEUTRAL_COLOR;
+          this.drawTrail(ctx, trail, cosmetics.trail, colors.main);
+        }
+      }
+    }
 
     // Draw nodes
     for (const node of state.nodes) {
@@ -620,16 +653,441 @@ export class GameRenderer {
     ctx.arc(x, y, glowSize, 0, Math.PI * 2);
     ctx.fill();
 
-    // Node body
-    ctx.fillStyle = colors.dark;
-    ctx.strokeStyle = colors.main;
-    ctx.lineWidth = isHovered ? 3 : 2;
-    ctx.shadowColor = colors.main;
-    ctx.shadowBlur = isHovered ? 20 : 10;
-    ctx.beginPath();
-    ctx.arc(x, y, node.radius, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
+    // Node body — with skin support
+    const cosmetics = node.owner ? this.playerCosmetics.get(node.owner) : null;
+    const skinId = (node.isCore && cosmetics) ? cosmetics.skin : '';
+
+    if (node.isCore && skinId === 'skin_hexagon') {
+      // Hexagonal core
+      ctx.fillStyle = colors.dark;
+      ctx.strokeStyle = colors.main;
+      ctx.lineWidth = isHovered ? 3 : 2;
+      ctx.shadowColor = colors.main;
+      ctx.shadowBlur = isHovered ? 20 : 10;
+      ctx.beginPath();
+      for (let i = 0; i <= 6; i++) {
+        const a = (i / 6) * Math.PI * 2 - Math.PI / 6;
+        const px = x + Math.cos(a) * node.radius;
+        const py = y + Math.sin(a) * node.radius;
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.fill();
+      ctx.stroke();
+    } else if (node.isCore && skinId === 'skin_diamond') {
+      ctx.fillStyle = colors.dark;
+      ctx.strokeStyle = colors.main;
+      ctx.lineWidth = isHovered ? 3 : 2;
+      ctx.shadowColor = colors.main;
+      ctx.shadowBlur = isHovered ? 20 : 10;
+      ctx.beginPath();
+      ctx.moveTo(x, y - node.radius * 1.2);
+      ctx.lineTo(x + node.radius, y);
+      ctx.lineTo(x, y + node.radius * 1.2);
+      ctx.lineTo(x - node.radius, y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    } else if (node.isCore && skinId === 'skin_star') {
+      ctx.fillStyle = colors.dark;
+      ctx.strokeStyle = colors.main;
+      ctx.lineWidth = isHovered ? 3 : 2;
+      ctx.shadowColor = colors.main;
+      ctx.shadowBlur = isHovered ? 20 : 10;
+      const starPulse = 1 + 0.1 * Math.sin(this.time * 3);
+      ctx.beginPath();
+      for (let i = 0; i < 10; i++) {
+        const a = (i / 10) * Math.PI * 2 - Math.PI / 2 + this.time * 0.3;
+        const r = (i % 2 === 0 ? node.radius * starPulse : node.radius * 0.5);
+        const px = x + Math.cos(a) * r;
+        const py = y + Math.sin(a) * r;
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    } else if (node.isCore && skinId === 'skin_plasma') {
+      ctx.fillStyle = colors.dark;
+      ctx.strokeStyle = colors.main;
+      ctx.lineWidth = isHovered ? 3 : 2;
+      ctx.shadowColor = colors.main;
+      ctx.shadowBlur = isHovered ? 25 : 15;
+      ctx.beginPath();
+      ctx.arc(x, y, node.radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      // Crackling bolts
+      for (let i = 0; i < 4; i++) {
+        const a = this.time * 2 + i * Math.PI / 2;
+        ctx.strokeStyle = colors.main;
+        ctx.lineWidth = 1.5;
+        ctx.globalAlpha = 0.6 + 0.4 * Math.sin(this.time * 8 + i);
+        ctx.beginPath();
+        let bx = x, by = y;
+        ctx.moveTo(bx, by);
+        for (let j = 0; j < 4; j++) {
+          bx += Math.cos(a + (Math.random() - 0.5) * 1.5) * (node.radius * 0.45);
+          by += Math.sin(a + (Math.random() - 0.5) * 1.5) * (node.radius * 0.45);
+          ctx.lineTo(bx, by);
+        }
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+    } else if (node.isCore && skinId === 'skin_galaxy') {
+      ctx.fillStyle = colors.dark;
+      ctx.strokeStyle = colors.main;
+      ctx.lineWidth = isHovered ? 3 : 2;
+      ctx.shadowColor = colors.main;
+      ctx.shadowBlur = isHovered ? 20 : 10;
+      ctx.beginPath();
+      ctx.arc(x, y, node.radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      // Spiral galaxy arms inside
+      ctx.save();
+      ctx.clip();
+      for (let arm = 0; arm < 2; arm++) {
+        ctx.strokeStyle = colors.main;
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = 0.5;
+        ctx.beginPath();
+        for (let t = 0; t < 30; t++) {
+          const angle = this.time * 0.8 + arm * Math.PI + t * 0.2;
+          const r = (t / 30) * node.radius * 0.9;
+          const sx = x + Math.cos(angle) * r;
+          const sy = y + Math.sin(angle) * r;
+          if (t === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+        }
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+      ctx.restore();
+    } else if (node.isCore && skinId === 'skin_phoenix') {
+      ctx.fillStyle = colors.dark;
+      ctx.strokeStyle = '#ff4400';
+      ctx.lineWidth = isHovered ? 3 : 2;
+      ctx.shadowColor = '#ff6600';
+      ctx.shadowBlur = 30;
+      ctx.beginPath();
+      ctx.arc(x, y, node.radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      // Fire particles around
+      for (let i = 0; i < 8; i++) {
+        const a = this.time * 1.5 + i * Math.PI / 4;
+        const dist = node.radius + 5 + Math.sin(this.time * 4 + i * 2) * 8;
+        const fx = x + Math.cos(a) * dist;
+        const fy = y + Math.sin(a) * dist - Math.sin(this.time * 3 + i) * 4;
+        ctx.fillStyle = `hsl(${20 + Math.random() * 30}, 100%, ${50 + Math.random() * 30}%)`;
+        ctx.globalAlpha = 0.5 + 0.5 * Math.sin(this.time * 6 + i);
+        ctx.beginPath();
+        ctx.arc(fx, fy, 2 + Math.random() * 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    } else if (node.isCore && skinId === 'skin_glitch') {
+      ctx.fillStyle = colors.dark;
+      ctx.strokeStyle = colors.main;
+      ctx.lineWidth = isHovered ? 3 : 2;
+      ctx.shadowColor = colors.main;
+      ctx.shadowBlur = 15;
+      ctx.beginPath();
+      ctx.arc(x, y, node.radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      // Glitch offset copies
+      const glitchAmt = Math.sin(this.time * 12) > 0.8 ? 4 : 0;
+      if (glitchAmt > 0) {
+        ctx.globalAlpha = 0.4;
+        ctx.strokeStyle = '#ff0044';
+        ctx.beginPath();
+        ctx.arc(x + glitchAmt, y - glitchAmt, node.radius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.strokeStyle = '#00ffaa';
+        ctx.beginPath();
+        ctx.arc(x - glitchAmt, y + glitchAmt, node.radius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+    } else if (node.isCore && skinId === 'skin_omega') {
+      ctx.fillStyle = '#0a0a0a';
+      ctx.strokeStyle = '#ffd700';
+      ctx.lineWidth = 3;
+      ctx.shadowColor = '#ffd700';
+      ctx.shadowBlur = 35;
+      ctx.beginPath();
+      ctx.arc(x, y, node.radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      // Omega symbol
+      ctx.font = `bold ${node.radius}px Orbitron, monospace`;
+      ctx.fillStyle = '#ffd700';
+      ctx.globalAlpha = 0.9;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('Ω', x, y + 2);
+      ctx.globalAlpha = 1;
+      ctx.textBaseline = 'alphabetic';
+    } else if (node.isCore && skinId === 'skin_void') {
+      // Dark core with swirling void
+      ctx.fillStyle = '#050510';
+      ctx.strokeStyle = '#8800ff';
+      ctx.lineWidth = isHovered ? 3 : 2;
+      ctx.shadowColor = '#8800ff';
+      ctx.shadowBlur = 20;
+      ctx.beginPath();
+      ctx.arc(x, y, node.radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      // Swirl particles
+      for (let i = 0; i < 6; i++) {
+        const a = this.time * 1.5 + i * Math.PI / 3;
+        const r = node.radius * 0.6 * (0.5 + 0.5 * Math.sin(this.time * 2 + i));
+        ctx.fillStyle = '#aa44ff';
+        ctx.globalAlpha = 0.3 + 0.3 * Math.sin(this.time * 3 + i);
+        ctx.beginPath();
+        ctx.arc(x + Math.cos(a) * r, y + Math.sin(a) * r, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    } else if (node.isCore && skinId === 'skin_pulse') {
+      ctx.fillStyle = colors.dark;
+      ctx.strokeStyle = colors.main;
+      ctx.lineWidth = isHovered ? 3 : 2;
+      ctx.shadowColor = colors.main;
+      ctx.shadowBlur = isHovered ? 20 : 10;
+      ctx.beginPath();
+      ctx.arc(x, y, node.radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      // Radiating pulse rings
+      for (let i = 0; i < 3; i++) {
+        const ringProgress = ((this.time * 0.5 + i * 0.33) % 1);
+        const ringR = node.radius + ringProgress * node.radius * 2;
+        ctx.strokeStyle = colors.main;
+        ctx.lineWidth = 1.5;
+        ctx.globalAlpha = (1 - ringProgress) * 0.5;
+        ctx.beginPath();
+        ctx.arc(x, y, ringR, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    } else {
+      // Default circle
+      ctx.fillStyle = colors.dark;
+      ctx.strokeStyle = colors.main;
+      ctx.lineWidth = isHovered ? 3 : 2;
+      ctx.shadowColor = colors.main;
+      ctx.shadowBlur = isHovered ? 20 : 10;
+      ctx.beginPath();
+      ctx.arc(x, y, node.radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    // COSMETIC BORDER around core nodes
+    if (node.isCore && cosmetics && cosmetics.border !== 'border_none' && player) {
+      const bdr = cosmetics.border;
+      ctx.save();
+      if (bdr === 'border_thin') {
+        ctx.strokeStyle = colors.main;
+        ctx.lineWidth = 1;
+        ctx.globalAlpha = 0.8;
+        ctx.beginPath();
+        ctx.arc(x, y, node.radius + 8, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (bdr === 'border_double') {
+        ctx.strokeStyle = colors.main;
+        ctx.lineWidth = 1;
+        ctx.globalAlpha = 0.6;
+        ctx.beginPath();
+        ctx.arc(x, y, node.radius + 8, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(x, y, node.radius + 14, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (bdr === 'border_dashed') {
+        ctx.translate(x, y);
+        ctx.rotate(this.time * 0.8);
+        ctx.strokeStyle = colors.main;
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = 0.7;
+        ctx.setLineDash([6, 6]);
+        ctx.beginPath();
+        ctx.arc(0, 0, node.radius + 10, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      } else if (bdr === 'border_gear') {
+        ctx.translate(x, y);
+        ctx.rotate(this.time * 0.5);
+        const teeth = 12;
+        const innerR = node.radius + 8;
+        const outerR = node.radius + 14;
+        ctx.strokeStyle = colors.main;
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = 0.7;
+        ctx.beginPath();
+        for (let i = 0; i < teeth * 2; i++) {
+          const a = (i / (teeth * 2)) * Math.PI * 2;
+          const r = i % 2 === 0 ? outerR : innerR;
+          if (i === 0) ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r);
+          else ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+        }
+        ctx.closePath();
+        ctx.stroke();
+      } else if (bdr === 'border_flame') {
+        for (let i = 0; i < 16; i++) {
+          const a = (i / 16) * Math.PI * 2 + this.time * 1.5;
+          const flicker = 2 + Math.sin(this.time * 5 + i * 3) * 4;
+          const dist = node.radius + 8 + flicker;
+          ctx.fillStyle = `hsl(${15 + Math.sin(this.time * 3 + i) * 15}, 100%, 55%)`;
+          ctx.globalAlpha = 0.5 + 0.3 * Math.sin(this.time * 4 + i);
+          ctx.beginPath();
+          ctx.arc(x + Math.cos(a) * dist, y + Math.sin(a) * dist, 2.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      } else if (bdr === 'border_pulse') {
+        const p = 0.5 + 0.5 * Math.sin(this.time * 3);
+        ctx.strokeStyle = colors.main;
+        ctx.lineWidth = 2 + p * 2;
+        ctx.globalAlpha = 0.3 + p * 0.5;
+        ctx.shadowColor = colors.main;
+        ctx.shadowBlur = 15;
+        ctx.beginPath();
+        ctx.arc(x, y, node.radius + 10, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (bdr === 'border_holo') {
+        const hue = (this.time * 60) % 360;
+        ctx.strokeStyle = `hsl(${hue}, 100%, 70%)`;
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = 0.7;
+        ctx.shadowColor = `hsl(${hue}, 100%, 60%)`;
+        ctx.shadowBlur = 15;
+        ctx.beginPath();
+        ctx.arc(x, y, node.radius + 10, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (bdr === 'border_divine') {
+        const gp = 0.5 + 0.5 * Math.sin(this.time * 2);
+        ctx.strokeStyle = '#ffd700';
+        ctx.lineWidth = 3;
+        ctx.globalAlpha = 0.6 + gp * 0.3;
+        ctx.shadowColor = '#ffd700';
+        ctx.shadowBlur = 25;
+        ctx.beginPath();
+        ctx.arc(x, y, node.radius + 12, 0, Math.PI * 2);
+        ctx.stroke();
+        // Inner golden ring
+        ctx.lineWidth = 1;
+        ctx.globalAlpha = 0.4;
+        ctx.beginPath();
+        ctx.arc(x, y, node.radius + 18, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // COSMETIC PET orbiting core nodes
+    if (node.isCore && cosmetics && cosmetics.pet !== 'pet_none' && player) {
+      const petId = cosmetics.pet;
+      const orbitR = node.radius + 25;
+      const petSpeed = 1.5;
+      const petAngle = this.time * petSpeed;
+      const px = x + Math.cos(petAngle) * orbitR;
+      const py = y + Math.sin(petAngle) * orbitR;
+
+      ctx.save();
+      ctx.shadowBlur = 0;
+      if (petId === 'pet_orb') {
+        const p = 0.5 + 0.5 * Math.sin(this.time * 4);
+        ctx.fillStyle = colors.main;
+        ctx.globalAlpha = 0.6 + p * 0.4;
+        ctx.shadowColor = colors.main;
+        ctx.shadowBlur = 10;
+        ctx.beginPath();
+        ctx.arc(px, py, 4, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (petId === 'pet_cube') {
+        ctx.translate(px, py);
+        ctx.rotate(this.time * 2);
+        ctx.strokeStyle = colors.main;
+        ctx.lineWidth = 1.5;
+        ctx.globalAlpha = 0.8;
+        ctx.strokeRect(-4, -4, 8, 8);
+      } else if (petId === 'pet_drone') {
+        ctx.fillStyle = '#888';
+        ctx.strokeStyle = colors.main;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(px, py, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        // Propeller
+        ctx.strokeStyle = '#aaa';
+        ctx.lineWidth = 1;
+        const pa = this.time * 15;
+        ctx.beginPath();
+        ctx.moveTo(px + Math.cos(pa) * 7, py + Math.sin(pa) * 2);
+        ctx.lineTo(px - Math.cos(pa) * 7, py - Math.sin(pa) * 2);
+        ctx.stroke();
+      } else if (petId === 'pet_skull') {
+        ctx.font = '14px sans-serif';
+        ctx.globalAlpha = 0.6 + 0.3 * Math.sin(this.time * 2);
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('💀', px, py);
+      } else if (petId === 'pet_star') {
+        const sp = 0.7 + 0.3 * Math.sin(this.time * 3);
+        ctx.fillStyle = '#ffd700';
+        ctx.globalAlpha = sp;
+        ctx.shadowColor = '#ffd700';
+        ctx.shadowBlur = 8;
+        ctx.beginPath();
+        for (let i = 0; i < 10; i++) {
+          const a = (i / 10) * Math.PI * 2 - Math.PI / 2 + this.time;
+          const r = i % 2 === 0 ? 6 : 3;
+          if (i === 0) ctx.moveTo(px + Math.cos(a) * r, py + Math.sin(a) * r);
+          else ctx.lineTo(px + Math.cos(a) * r, py + Math.sin(a) * r);
+        }
+        ctx.closePath();
+        ctx.fill();
+      } else if (petId === 'pet_dragon') {
+        ctx.font = '16px sans-serif';
+        ctx.globalAlpha = 0.9;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('🐲', px, py);
+      } else if (petId === 'pet_eye') {
+        ctx.font = '14px sans-serif';
+        ctx.globalAlpha = 0.8;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('👁', px, py);
+      } else if (petId === 'pet_blackhole') {
+        const bhp = 0.5 + 0.5 * Math.sin(this.time * 3);
+        ctx.fillStyle = '#220033';
+        ctx.strokeStyle = '#8800ff';
+        ctx.lineWidth = 1.5;
+        ctx.globalAlpha = 0.9;
+        ctx.shadowColor = '#6600cc';
+        ctx.shadowBlur = 12;
+        ctx.beginPath();
+        ctx.arc(px, py, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.globalAlpha = bhp * 0.5;
+        ctx.beginPath();
+        ctx.arc(px, py, 8, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (petId === 'pet_crown') {
+        ctx.font = '16px sans-serif';
+        ctx.globalAlpha = 0.9;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        // Float above
+        const crownY = py - 4 + Math.sin(this.time * 2) * 3;
+        ctx.fillText('👑', px, crownY);
+      }
+      ctx.restore();
+    }
 
     // Core node decoration
     if (node.isCore) {
@@ -849,6 +1307,104 @@ export class GameRenderer {
       ctx.beginPath();
       ctx.arc(x, y, node.radius + 2, 0, Math.PI * 2);
       ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+  private drawTrail(ctx: CanvasRenderingContext2D, trail: Vec2[], trailId: string, color: string): void {
+    if (trail.length < 2) return;
+    ctx.save();
+
+    if (trailId === 'trail_spark') {
+      for (let i = 1; i < trail.length; i++) {
+        const alpha = (1 - i / trail.length) * 0.6;
+        ctx.fillStyle = color;
+        ctx.globalAlpha = alpha;
+        ctx.beginPath();
+        ctx.arc(trail[i].x + (Math.random() - 0.5) * 4, trail[i].y + (Math.random() - 0.5) * 4, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else if (trailId === 'trail_smoke') {
+      for (let i = 1; i < trail.length; i++) {
+        const alpha = (1 - i / trail.length) * 0.3;
+        const size = 3 + (i / trail.length) * 8;
+        ctx.fillStyle = '#888888';
+        ctx.globalAlpha = alpha;
+        ctx.beginPath();
+        ctx.arc(trail[i].x, trail[i].y, size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else if (trailId === 'trail_fire') {
+      for (let i = 1; i < trail.length; i++) {
+        const alpha = (1 - i / trail.length) * 0.7;
+        const hue = 10 + (i / trail.length) * 30;
+        ctx.fillStyle = `hsl(${hue}, 100%, 55%)`;
+        ctx.globalAlpha = alpha;
+        ctx.beginPath();
+        ctx.arc(trail[i].x + (Math.random() - 0.5) * 3, trail[i].y + (Math.random() - 0.5) * 3, 2 + (i / trail.length) * 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else if (trailId === 'trail_rainbow') {
+      for (let i = 1; i < trail.length; i++) {
+        const alpha = (1 - i / trail.length) * 0.6;
+        const hue = (this.time * 100 + i * 15) % 360;
+        ctx.fillStyle = `hsl(${hue}, 100%, 60%)`;
+        ctx.globalAlpha = alpha;
+        ctx.beginPath();
+        ctx.arc(trail[i].x, trail[i].y, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else if (trailId === 'trail_lightning') {
+      ctx.strokeStyle = '#00ccff';
+      ctx.lineWidth = 1.5;
+      for (let i = 1; i < Math.min(trail.length, 15); i++) {
+        const alpha = (1 - i / 15) * 0.8;
+        ctx.globalAlpha = alpha;
+        ctx.beginPath();
+        ctx.moveTo(trail[i - 1].x, trail[i - 1].y);
+        const jx = (Math.random() - 0.5) * 8;
+        const jy = (Math.random() - 0.5) * 8;
+        ctx.lineTo(trail[i].x + jx, trail[i].y + jy);
+        ctx.stroke();
+      }
+    } else if (trailId === 'trail_ice') {
+      for (let i = 1; i < trail.length; i++) {
+        const alpha = (1 - i / trail.length) * 0.5;
+        ctx.fillStyle = '#aaeeff';
+        ctx.globalAlpha = alpha;
+        ctx.shadowColor = '#66ccff';
+        ctx.shadowBlur = 5;
+        const size = 1 + Math.random() * 2;
+        ctx.beginPath();
+        ctx.arc(trail[i].x + (Math.random() - 0.5) * 5, trail[i].y + (Math.random() - 0.5) * 5, size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else if (trailId === 'trail_void') {
+      for (let i = 1; i < trail.length; i++) {
+        const alpha = (1 - i / trail.length) * 0.4;
+        const size = 2 + (i / trail.length) * 6;
+        ctx.fillStyle = '#220044';
+        ctx.strokeStyle = '#6600cc';
+        ctx.lineWidth = 1;
+        ctx.globalAlpha = alpha;
+        ctx.beginPath();
+        ctx.arc(trail[i].x, trail[i].y, size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+    } else if (trailId === 'trail_galaxy') {
+      for (let i = 1; i < trail.length; i++) {
+        const alpha = (1 - i / trail.length) * 0.7;
+        const hue = (this.time * 30 + i * 20) % 360;
+        ctx.fillStyle = `hsl(${hue}, 80%, 80%)`;
+        ctx.globalAlpha = alpha;
+        ctx.shadowColor = `hsl(${hue}, 80%, 60%)`;
+        ctx.shadowBlur = 4;
+        ctx.beginPath();
+        ctx.arc(trail[i].x + (Math.random() - 0.5) * 6, trail[i].y + (Math.random() - 0.5) * 6, 1 + Math.random(), 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
 
     ctx.restore();

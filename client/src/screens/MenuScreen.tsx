@@ -5,34 +5,42 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { socketManager } from '../network/SocketManager';
-import type { GameMode, LobbyInfo, PlayerProgression, XP_PER_LEVEL, LEVEL_TITLES } from '../../../shared/types';
+import type { GameMode, LobbyInfo, PlayerProgression, CosmeticItem } from '../../../shared/types';
+import { getLevelFromXP, xpToNextLevel, xpForLevel, LEVEL_TITLES, ALL_COSMETICS, RARITY_COLORS } from '../../../shared/types';
 
-// Local XP functions
-const XP_PER_LEVEL_VAL = 500;
-const LEVEL_TITLES_ARR: [number, string][] = [
-  [1, 'Newcomer'], [3, 'Node Runner'], [5, 'Link Master'],
-  [8, 'Network Architect'], [12, 'Grid Commander'], [15, 'Cyber Warlord'],
-  [20, 'Singularity'], [25, 'Digital God'], [30, 'TRANSCENDED'],
-];
-
+// Local XP functions (use shared scaling)
 function getProgression(): PlayerProgression {
   try {
     const data = localStorage.getItem('linkio-progression');
-    if (data) return JSON.parse(data);
+    if (data) {
+      const parsed = JSON.parse(data);
+      if (!parsed.equippedSkin) parsed.equippedSkin = 'skin_default';
+      if (!parsed.equippedPet) parsed.equippedPet = 'pet_none';
+      if (!parsed.equippedTrail) parsed.equippedTrail = 'trail_none';
+      if (!parsed.equippedBorder) parsed.equippedBorder = 'border_none';
+      if (!parsed.unlockedCosmetics) parsed.unlockedCosmetics = ['skin_default', 'pet_none', 'trail_none', 'border_none'];
+      parsed.level = getLevelFromXP(parsed.xp);
+      // Auto-unlock cosmetics
+      for (const item of ALL_COSMETICS) {
+        if (parsed.level >= item.levelRequired && !parsed.unlockedCosmetics.includes(item.id)) {
+          parsed.unlockedCosmetics.push(item.id);
+        }
+      }
+      return parsed;
+    }
   } catch { /* ignore */ }
   return {
     xp: 0, level: 1, gamesPlayed: 0, totalKills: 0,
     totalWins: 0, bestStreak: 0, longestGame: 0,
     titles: ['Newcomer'], currentTitle: 'Newcomer',
+    equippedSkin: 'skin_default', equippedPet: 'pet_none',
+    equippedTrail: 'trail_none', equippedBorder: 'border_none',
+    unlockedCosmetics: ['skin_default', 'pet_none', 'trail_none', 'border_none'],
   };
 }
 
-function getLevelTitle(level: number): string {
-  let title = 'Newcomer';
-  for (const [threshold, t] of LEVEL_TITLES_ARR) {
-    if (level >= threshold) title = t;
-  }
-  return title;
+function saveProgression(prog: PlayerProgression): void {
+  localStorage.setItem('linkio-progression', JSON.stringify(prog));
 }
 
 interface MenuScreenProps {
@@ -56,8 +64,34 @@ export default function MenuScreen({ onPlay, onCreateLobby, onJoinLobby, error, 
   const [gameMode, setGameMode] = useState<GameMode>('ffa');
   const [copied, setCopied] = useState(false);
   const [onlinePlayers, setOnlinePlayers] = useState(0);
+  const [showShop, setShowShop] = useState(false);
+  const [shopTab, setShopTab] = useState<'skin' | 'pet' | 'trail' | 'border'>('skin');
+  const [prog, setProg] = useState(getProgression);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const progression = getProgression();
+
+  const xpNeeded = xpToNextLevel(prog.level);
+  const xpIntoLevel = prog.xp - xpForLevel(prog.level);
+  const xpPercent = Math.min((xpIntoLevel / xpNeeded) * 100, 100);
+
+  const equipCosmetic = (item: CosmeticItem) => {
+    const updated = { ...prog };
+    if (item.type === 'skin') updated.equippedSkin = item.id;
+    else if (item.type === 'pet') updated.equippedPet = item.id;
+    else if (item.type === 'trail') updated.equippedTrail = item.id;
+    else if (item.type === 'border') updated.equippedBorder = item.id;
+    saveProgression(updated);
+    setProg(updated);
+  };
+
+  const getShopItems = () => ALL_COSMETICS.filter(c => c.type === shopTab);
+  const isUnlocked = (id: string) => prog.unlockedCosmetics.includes(id);
+  const isEquipped = (item: CosmeticItem) => {
+    if (item.type === 'skin') return prog.equippedSkin === item.id;
+    if (item.type === 'pet') return prog.equippedPet === item.id;
+    if (item.type === 'trail') return prog.equippedTrail === item.id;
+    if (item.type === 'border') return prog.equippedBorder === item.id;
+    return false;
+  };
 
   // Persist name
   useEffect(() => {
@@ -200,14 +234,76 @@ export default function MenuScreen({ onPlay, onCreateLobby, onJoinLobby, error, 
             </div>
           )}
           <div className="menu-xp-display">
-            <span className="xp-level">LVL {progression.level}</span>
-            <span className="xp-title">{progression.currentTitle}</span>
+            <span className="xp-level">LVL {prog.level}</span>
+            <span className="xp-title">{prog.currentTitle}</span>
             <div className="xp-bar">
-              <div className="xp-bar-fill" style={{ width: `${((progression.xp % XP_PER_LEVEL_VAL) / XP_PER_LEVEL_VAL) * 100}%` }} />
+              <div className="xp-bar-fill" style={{ width: `${xpPercent}%` }} />
             </div>
-            <span className="xp-text">{progression.xp % XP_PER_LEVEL_VAL}/{XP_PER_LEVEL_VAL} XP</span>
+            <span className="xp-text">{Math.floor(xpIntoLevel)}/{xpNeeded} XP</span>
           </div>
+          <button className="btn btn-cosmetics" onClick={() => setShowShop(true)}>
+            🎨 COSMETICS
+          </button>
         </div>
+
+        {/* COSMETICS SHOP MODAL */}
+        {showShop && (
+          <div className="cosmetics-overlay" onClick={() => setShowShop(false)}>
+            <div className="cosmetics-shop" onClick={e => e.stopPropagation()}>
+              <div className="cosmetics-header">
+                <h2 className="cosmetics-title">COSMETICS SHOP</h2>
+                <span className="cosmetics-level">LVL {prog.level}</span>
+                <button className="cosmetics-close" onClick={() => setShowShop(false)}>✕</button>
+              </div>
+
+              <div className="cosmetics-tabs">
+                {(['skin', 'pet', 'trail', 'border'] as const).map(tab => (
+                  <button
+                    key={tab}
+                    className={`cosmetics-tab ${shopTab === tab ? 'active' : ''}`}
+                    onClick={() => setShopTab(tab)}
+                  >
+                    {tab === 'skin' ? '🎭 Skins' : tab === 'pet' ? '🐾 Pets' : tab === 'trail' ? '✨ Trails' : '💠 Borders'}
+                  </button>
+                ))}
+              </div>
+
+              <div className="cosmetics-grid">
+                {getShopItems().map(item => {
+                  const unlocked = isUnlocked(item.id);
+                  const equipped = isEquipped(item);
+                  return (
+                    <div
+                      key={item.id}
+                      className={`cosmetic-card ${unlocked ? 'unlocked' : 'locked'} ${equipped ? 'equipped' : ''} rarity-${item.rarity}`}
+                      onClick={() => unlocked && equipCosmetic(item)}
+                    >
+                      <div className="cosmetic-icon">{item.icon}</div>
+                      <div className="cosmetic-name">{item.name}</div>
+                      <div className="cosmetic-rarity" style={{ color: RARITY_COLORS[item.rarity] }}>
+                        {item.rarity.toUpperCase()}
+                      </div>
+                      {!unlocked && (
+                        <div className="cosmetic-lock">
+                          🔒 LVL {item.levelRequired}
+                        </div>
+                      )}
+                      {equipped && <div className="cosmetic-equipped-badge">EQUIPPED</div>}
+                      <div className="cosmetic-desc">{item.description}</div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="cosmetics-progress">
+                <span>{prog.unlockedCosmetics.length}/{ALL_COSMETICS.length} unlocked</span>
+                <div className="cosmetics-progress-bar">
+                  <div className="cosmetics-progress-fill" style={{ width: `${(prog.unlockedCosmetics.length / ALL_COSMETICS.length) * 100}%` }} />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Queue status */}
         {queueStatus && (
