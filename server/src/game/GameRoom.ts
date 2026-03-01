@@ -65,7 +65,7 @@ const GOLD_NODE_LIFETIME = 6;        // seconds before gold node despawns
 
 // Respawn system
 const RESPAWN_TIME = 5; // seconds to respawn
-const RESPAWN_INVULN_TIME = 5; // seconds of invulnerability after respawn
+const RESPAWN_INVULN_TIME = 8; // seconds of invulnerability after respawn
 const RESPAWN_ENERGY = 100; // generous respawn energy for comeback
 
 // Health system
@@ -247,6 +247,7 @@ export class GameRoom {
       nodesStolen: 0,
       longestChain: 0,
       totalEnergyGenerated: 0,
+      peakNodeCount: 1,
       upgrades: { ...DEFAULT_UPGRADES },
       clickStreak: 0,
       clickStreakTimer: 0,
@@ -349,6 +350,7 @@ export class GameRoom {
     victim.respawnTimer = RESPAWN_TIME;
     victim.combo = 0;
     victim.comboTimer = 0;
+    victim.killStreak = 0; // reset streak on death
 
     // Clean up victim's network
     this.state.links = this.state.links.filter((l: GameLink) => l.owner !== victim.id);
@@ -367,11 +369,8 @@ export class GameRoom {
     let killerStreak = 0;
 
     if (killer) {
-      // Check revenge kill
-      isRevenge = victim.lastKilledBy === null && killer.lastKilledBy === victim.id;
-      if (killer.lastKilledBy === victim.id) {
-        isRevenge = true;
-      }
+      // Check revenge kill — did victim previously kill us?
+      isRevenge = killer.lastKilledBy === victim.id;
 
       killer.killStreak++;
       killerStreak = killer.killStreak;
@@ -443,7 +442,6 @@ export class GameRoom {
     player.health = PLAYER_MAX_HEALTH;
     player.respawnTimer = 0;
     player.invulnTimer = RESPAWN_INVULN_TIME;
-    player.killStreak = 0; // reset streak on death
     player.nodeCount = 1;
     player.linkCount = 0;
     player.lastDamagedBy = null;
@@ -533,7 +531,7 @@ export class GameRoom {
               link.shielded = false;
             }
           }
-        }, 5000);
+        }, 8000);
         console.log(`[LINK.IO] 🛡️ ${player.name} activated SHIELD!`);
         break;
       }
@@ -1003,6 +1001,11 @@ export class GameRoom {
       }
 
       // Score ticks based on territory (more dynamic!)
+      // Track peak node count
+      if (player.nodeCount > player.peakNodeCount) {
+        player.peakNodeCount = player.nodeCount;
+      }
+
       const territoryScore = player.nodeCount * 0.5 + player.linkCount * 0.3;
       player.score += territoryScore * deltaTime;
 
@@ -1287,7 +1290,7 @@ export class GameRoom {
         });
         if (hasNearbyLinks && victim) {
           this.addKillFeed(otherPlayer, victim, `stole ${nodeIds.length} nodes from`);
-          otherPlayer.killCount += nodeIds.length;
+          otherPlayer.nodesStolen += nodeIds.length;
           otherPlayer.score += nodeIds.length * 25;
           this.io.to(this.id).emit('game:screenShake', { intensity: 5, duration: 0.3 });
           break;
@@ -1559,8 +1562,12 @@ export class GameRoom {
         upgrades: p.upgrades,
         clickStreak: p.clickStreak,
         clickStreakTimer: p.clickStreakTimer,
-        // Stripped: lastKilledBy, lastDamagedBy, bestStreak, bestClickStreak,
-        //          totalClicks, longestChain, totalEnergyGenerated, assists, nodesStolen
+        bestStreak: p.bestStreak,
+        nodesStolen: p.nodesStolen,
+        longestChain: p.longestChain,
+        peakNodeCount: p.peakNodeCount,
+        // Stripped: lastKilledBy, lastDamagedBy, bestClickStreak,
+        //          totalClicks, totalEnergyGenerated, assists
       });
     }
 
@@ -1629,7 +1636,7 @@ export class GameRoom {
       });
     }
 
-    this.io.to(this.id).emit('game:state', this.state);
+    this.io.to(this.id).emit('game:state', this.buildClientState());
   }
 
   // ============ DYNAMIC EVENTS SYSTEM ============

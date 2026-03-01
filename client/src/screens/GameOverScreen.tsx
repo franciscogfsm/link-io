@@ -69,7 +69,8 @@ export default function GameOverScreen({ winner, winningTeam, scores, currentPla
               <span className="gameover-score-metric">Kills: {player.killCount}</span>
               <span className="gameover-score-metric">Deaths: {player.deaths}</span>
               <span className="gameover-score-metric">Best Streak: {player.bestStreak}</span>
-              <span className="gameover-score-metric">Nodes: {player.nodeCount}</span>
+              <span className="gameover-score-metric">Nodes Stolen: {player.nodesStolen}</span>
+              <span className="gameover-score-metric">Peak Nodes: {player.peakNodeCount}</span>
               <span className="gameover-score-metric">Max Chain: {player.longestChain}</span>
             </div>
           </div>

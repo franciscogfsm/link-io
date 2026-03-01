@@ -189,6 +189,7 @@ export interface Player {
   nodesStolen: number;    // total nodes captured from enemies
   longestChain: number;   // longest chain of connected nodes
   totalEnergyGenerated: number; // lifetime energy generated
+  peakNodeCount: number;  // highest node count achieved
   upgrades: PlayerUpgrades;     // in-match upgrade tiers
   clickStreak: number;          // current rapid-click streak count
   clickStreakTimer: number;     // time left before streak resets

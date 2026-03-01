@@ -100,6 +100,13 @@ export class NetworkManager {
     nodeMap.clear();
     for (const n of nodes) nodeMap.set(n.id, n);
 
+    // Build invulnerable set so capture skips protected players
+    const invulnerable = this._invulnerable;
+    invulnerable.clear();
+    for (const p of players) {
+      if (p.invulnTimer > 0) invulnerable.add(p.id);
+    }
+
     for (const player of players) {
       if (!player.alive) continue;
 
@@ -157,7 +164,8 @@ export class NetworkManager {
       if (!toNode || toNode.isCore) continue;
 
       // If this link reaches an enemy node, start capture
-      if (toNode.owner !== null && toNode.owner !== link.owner && !link.shielded) {
+      // Skip if node owner is invulnerable (spawn protection)
+      if (toNode.owner !== null && toNode.owner !== link.owner && !link.shielded && !invulnerable.has(toNode.owner)) {
         // Reduce node "loyalty" (stored in energy) then flip ownership
         toNode.energy -= this.captureSpeed * deltaTime;
         if (toNode.energy <= 0) {
