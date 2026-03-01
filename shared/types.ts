@@ -69,13 +69,13 @@ export const UPGRADE_COSTS: Record<UpgradeType, number[]> = {
   regen:      [100, 240, 450],
   thornAura:  [150, 350, 600],
   // OFFENSE
-  power:      [130, 300, 550],
+  power:      [110, 260, 480],
   siphon:     [110, 260, 480],
   corrosion:  [180, 400, 700],
   // ECONOMY
-  flow:       [90,  220, 420],
+  flow:       [100, 250, 460],
   efficiency: [80,  200, 380],
-  magnet:     [140, 320, 550],
+  magnet:     [250, 500, 800],
   // UTILITY
   reach:      [100, 240, 440],
   toughLinks: [110, 260, 480],
@@ -104,7 +104,7 @@ export const UPGRADE_DESCRIPTIONS: Record<UpgradeType, string[]> = {
   corrosion:  ['AoE 10% splash', 'AoE 20% splash', 'AoE 35% splash'],
   flow:       ['+8% energy', '+15% energy', '+25% energy'],
   efficiency: ['-20% link cost', '-35% link cost', '-50% link cost'],
-  magnet:     ['Auto-grab 150px', 'Auto-grab 250px', 'Auto-grab 400px'],
+  magnet:     ['Auto-grab 100px', 'Auto-grab 160px', 'Auto-grab 220px'],
   reach:      ['+15% range', '+30% range', '+50% range'],
   toughLinks: ['+30% link HP', '+60% link HP', '+100% link HP'],
   speed:      ['+20% speed', '+40% speed', '+70% speed'],

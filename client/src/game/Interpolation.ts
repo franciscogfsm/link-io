@@ -14,6 +14,8 @@ interface NodeSnapshot {
 // ---- Client-side prediction constants (mirror server) ----
 const MOVE_BASE_SPEED = 200;
 const MOVE_MASS_PENALTY = 0.08;
+const MOVE_LINK_PENALTY = 0.015;
+const MOVE_AGILITY_BONUS = 1.5;  // speed multiplier when 0 links
 const MOVE_ACCELERATION = 12;
 const MOVE_FRICTION = 8;
 const SPEED_BONUSES = [1, 1.20, 1.40, 1.70];
@@ -34,6 +36,7 @@ export class Interpolation {
   private _localVelocity = { x: 0, y: 0 };
   private _predictedPos: { x: number; y: number } | null = null;
   private _playerNodeCount = 0;
+  private _playerLinkCount = 0;
   private _playerSpeedBonus = 1;
   private _playerEnergy = 0;
   private _arenaWidth = 4000;
@@ -72,6 +75,7 @@ export class Interpolation {
       if (localPlayer) {
         this._localCoreNodeId = localPlayer.coreNodeId;
         this._playerNodeCount = localPlayer.nodeCount;
+        this._playerLinkCount = localPlayer.linkCount;
         this._playerSpeedBonus = SPEED_BONUSES[localPlayer.upgrades.speed] ?? 1;
         this._playerEnergy = localPlayer.energy;
 
@@ -105,9 +109,10 @@ export class Interpolation {
     const vel = this._localVelocity;
     const input = this._localInput;
 
-    // Mass-based max speed (mirrors server)
-    const massFactor = Math.max(0.15, 1 - this._playerNodeCount * MOVE_MASS_PENALTY);
-    const maxSpeed = MOVE_BASE_SPEED * massFactor * this._playerSpeedBonus;
+    // Mass-based max speed (mirrors server) — fewer links = faster
+    const massFactor = Math.max(0.15, 1 - this._playerNodeCount * MOVE_MASS_PENALTY - this._playerLinkCount * MOVE_LINK_PENALTY);
+    const agilityBonus = this._playerLinkCount === 0 ? MOVE_AGILITY_BONUS : 1;
+    const maxSpeed = MOVE_BASE_SPEED * massFactor * this._playerSpeedBonus * agilityBonus;
 
     if ((input.x !== 0 || input.y !== 0) && this._playerEnergy > 1) {
       vel.x += input.x * maxSpeed * MOVE_ACCELERATION * dt;

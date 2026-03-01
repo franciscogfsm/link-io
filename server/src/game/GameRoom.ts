@@ -18,12 +18,12 @@ const UPGRADE_COSTS: Record<UpgradeType, number[]> = {
   fortify:    [120, 280, 500],
   regen:      [100, 240, 450],
   thornAura:  [150, 350, 600],
-  power:      [130, 300, 550],
+  power:      [110, 260, 480],
   siphon:     [110, 260, 480],
   corrosion:  [180, 400, 700],
-  flow:       [90,  220, 420],
+  flow:       [100, 250, 460],
   efficiency: [80,  200, 380],
-  magnet:     [140, 320, 550],
+  magnet:     [250, 500, 800],
   reach:      [100, 240, 440],
   toughLinks: [110, 260, 480],
   speed:      [120, 280, 500],
@@ -78,6 +78,8 @@ const DAMAGE_COOLDOWN = 4;           // seconds before regen starts
 // Movement system — energy cost, mass-based, links break if overstretched
 const MOVE_BASE_SPEED = 200;         // px/s base speed (with 0 nodes)
 const MOVE_MASS_PENALTY = 0.08;      // speed multiplier lost per owned node
+const MOVE_LINK_PENALTY = 0.015;     // speed multiplier lost per link
+const MOVE_AGILITY_BONUS = 1.5;      // speed multiplier when 0 links (free roaming)
 const MOVE_ENERGY_COST = 8;          // energy/s while moving
 const MOVE_ACCELERATION = 12;        // how fast you reach max speed (higher = snappier)
 const MOVE_FRICTION = 8;             // how fast you stop
@@ -140,6 +142,7 @@ export class GameRoom {
   private activeEvents: MapEvent[] = [];
   private playerMoveInputs = new Map<string, { x: number; y: number }>();
   private playerVelocities = new Map<string, { x: number; y: number }>();
+  private _magnetCooldowns = new Map<string, number>();
   private lastClickTime = new Map<string, number>();
   private goldNodeTimer = 0;
   private currentArenaWidth: number;
@@ -287,6 +290,7 @@ export class GameRoom {
     this.colorAssignments.delete(socketId);
     this.playerMoveInputs.delete(socketId);
     this.playerVelocities.delete(socketId);
+    this._magnetCooldowns.delete(socketId);
     this.lastClickTime.delete(socketId);
     this.antiCheat.cleanup(socketId);
     this.io.to(this.id).emit('room:playerLeft', { playerId: socketId });
@@ -1005,31 +1009,40 @@ export class GameRoom {
         }
       }
 
-      // Magnet upgrade — auto-claim ONE nearby unowned node per tick (perf-limited)
+      // Magnet upgrade — auto-claim ONE nearby unowned node on cooldown, costs energy
       if (player.alive && player.upgrades.magnet > 0) {
-        const magnetRange = [0, 150, 250, 400][player.upgrades.magnet];
+        const magnetRange = [0, 100, 160, 220][player.upgrades.magnet];
         const magnetRangeSq = magnetRange * magnetRange;
-        let claimed = false;
-        for (const owned of this.state.nodes) {
-          if (claimed) break;
-          if (owned.owner !== player.id) continue;
-          for (const node of this.state.nodes) {
+        const magnetCooldown = [0, 1.5, 1.2, 0.9][player.upgrades.magnet]; // seconds between grabs
+        const magnetEnergyCost = 5; // energy cost per auto-grab
+        // Use per-player cooldown tracker
+        let lastMagnet = this._magnetCooldowns.get(player.id) || 0;
+        const now = this.tickCount / TICK_RATE;
+        if (now - lastMagnet >= magnetCooldown && player.energy >= magnetEnergyCost) {
+          let claimed = false;
+          for (const owned of this.state.nodes) {
             if (claimed) break;
-            if (node.owner || node.isCore) continue;
-            const dx = node.position.x - owned.position.x;
-            const dy = node.position.y - owned.position.y;
-            if (dx * dx + dy * dy < magnetRangeSq) {
-              node.owner = player.id;
-              const link = this.network.createLink(
-                owned.id, node.id, player.id,
-                this.state.nodes, this.state.links, player,
-                1 + [0, 0.15, 0.30, 0.50][player.upgrades.reach]
-              );
-              if (link) {
-                this.state.links.push(link);
-                player.score += 5;
+            if (owned.owner !== player.id) continue;
+            for (const node of this.state.nodes) {
+              if (claimed) break;
+              if (node.owner || node.isCore) continue;
+              const dx = node.position.x - owned.position.x;
+              const dy = node.position.y - owned.position.y;
+              if (dx * dx + dy * dy < magnetRangeSq) {
+                node.owner = player.id;
+                player.energy -= magnetEnergyCost;
+                const link = this.network.createLink(
+                  owned.id, node.id, player.id,
+                  this.state.nodes, this.state.links, player,
+                  1 + [0, 0.15, 0.30, 0.50][player.upgrades.reach]
+                );
+                if (link) {
+                  this.state.links.push(link);
+                  player.score += 5;
+                }
+                claimed = true;
+                this._magnetCooldowns.set(player.id, now);
               }
-              claimed = true;
             }
           }
         }
@@ -1071,10 +1084,11 @@ export class GameRoom {
       const input = this.playerMoveInputs.get(player.id);
       let vel = this.playerVelocities.get(player.id) || { x: 0, y: 0 };
 
-      // Mass-based max speed: more nodes = slower
-      const massFactor = Math.max(0.15, 1 - player.nodeCount * MOVE_MASS_PENALTY);
+      // Mass-based max speed: more nodes + links = slower, 0 links = agility bonus
+      const massFactor = Math.max(0.15, 1 - player.nodeCount * MOVE_MASS_PENALTY - player.linkCount * MOVE_LINK_PENALTY);
+      const agilityBonus = player.linkCount === 0 ? MOVE_AGILITY_BONUS : 1;
       const speedBonus = 1 + [0, 0.20, 0.40, 0.70][player.upgrades.speed];
-      const maxSpeed = MOVE_BASE_SPEED * massFactor * speedBonus;
+      const maxSpeed = MOVE_BASE_SPEED * massFactor * speedBonus * agilityBonus;
 
       if (input && (input.x !== 0 || input.y !== 0) && player.energy > 1) {
         // Accelerate toward input direction
@@ -1283,12 +1297,12 @@ export class GameRoom {
         // THORN AURA — reflect damage back to the attacker's link
         if (coreOwner.upgrades.thornAura > 0) {
           const thornReflect = [0, 0.15, 0.30, 0.50][coreOwner.upgrades.thornAura];
-          link.health -= damage * thornReflect * 10;
+          link.health -= damage * thornReflect * 15;
         }
 
         // CORROSION — simplified: just damage all enemy links touching the target core directly
         if (attacker.upgrades.corrosion > 0) {
-          const splashDmg = damage * [0, 0.10, 0.20, 0.35][attacker.upgrades.corrosion] * 5;
+          const splashDmg = damage * [0, 0.10, 0.20, 0.35][attacker.upgrades.corrosion] * 8;
           for (const otherLink of this.state.links) {
             if (otherLink.owner === attacker.id || otherLink.id === link.id) continue;
             // Only damage enemy links that also touch this core node

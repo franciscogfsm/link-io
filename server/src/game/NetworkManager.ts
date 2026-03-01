@@ -14,7 +14,7 @@ export class NetworkManager {
   private combatDamagePerSecond = 25;
   private networkBonusMultiplier = 0.015;
   private captureSpeed = 20;
-  private siphonRate = 0.8;
+  private siphonRate = 1.2;
   // Link decay/repair system
   private linkDecayRate = 2;           // HP/s base decay for fringe links
   private linkRepairRate = 4;          // HP/s repair for core-connected links
