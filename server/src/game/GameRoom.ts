@@ -7,11 +7,18 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { Server, Socket } from 'socket.io';
 import type {
-  GameState, GameNode, GameLink, Player,
+  GameState, GameNode, GameLink, Player, PlayerUpgrades,
   ClientToServerEvents, ServerToClientEvents,
   KillFeedEntry, AbilityType, GameMode, MapEvent, UpgradeType
 } from '../../../shared/types.js';
-import { UPGRADE_COSTS, UPGRADE_MAX_TIER, DEFAULT_UPGRADES } from '../../../shared/types.js';
+import { UPGRADE_COSTS, UPGRADE_MAX_TIER } from '../../../shared/types.js';
+
+const DEFAULT_UPGRADES: PlayerUpgrades = {
+  fortify: 0, regen: 0, thornAura: 0,
+  power: 0, siphon: 0, corrosion: 0,
+  flow: 0, efficiency: 0, magnet: 0,
+  reach: 0, toughLinks: 0, speed: 0,
+};
 import { PhysicsEngine } from './PhysicsEngine.js';
 import { NetworkManager } from './NetworkManager.js';
 import { NodeGenerator } from './NodeGenerator.js';
