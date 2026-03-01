@@ -781,27 +781,65 @@ export class GameRenderer {
       }
     }
 
-    // Invulnerability shield - pulsing rainbow ring
+    // Invulnerability shield - big glowing aura
     if (node.owner && invulnerablePlayerIds.has(node.owner)) {
-      const shieldPulse = 0.5 + 0.5 * Math.sin(this.time * 8);
-      const hue = (this.time * 120) % 360;
-      ctx.strokeStyle = `hsla(${hue}, 100%, 70%, ${0.4 + shieldPulse * 0.4})`;
-      ctx.lineWidth = 3;
-      ctx.shadowColor = `hsl(${hue}, 100%, 60%)`;
-      ctx.shadowBlur = 15;
-      ctx.setLineDash([6, 4]);
+      const shieldPulse = 0.5 + 0.5 * Math.sin(this.time * 6);
+      const fastPulse = 0.5 + 0.5 * Math.sin(this.time * 12);
+      const hue = (this.time * 90) % 360;
+      const shieldRadius = node.radius + 14 + shieldPulse * 6;
+
+      // Outer glow fill - soft radial gradient aura
+      const glowGrad = ctx.createRadialGradient(x, y, node.radius * 0.5, x, y, shieldRadius + 10);
+      glowGrad.addColorStop(0, `hsla(${hue}, 100%, 80%, ${0.08 + fastPulse * 0.07})`);
+      glowGrad.addColorStop(0.6, `hsla(${hue}, 100%, 65%, ${0.12 + shieldPulse * 0.1})`);
+      glowGrad.addColorStop(1, `hsla(${hue}, 100%, 50%, 0)`);
+      ctx.fillStyle = glowGrad;
       ctx.beginPath();
-      ctx.arc(x, y, node.radius + 10 + shieldPulse * 4, 0, Math.PI * 2);
+      ctx.arc(x, y, shieldRadius + 10, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Main shield ring - thick, bright, with heavy glow
+      ctx.strokeStyle = `hsla(${hue}, 100%, 75%, ${0.6 + shieldPulse * 0.35})`;
+      ctx.lineWidth = 4;
+      ctx.shadowColor = `hsl(${hue}, 100%, 65%)`;
+      ctx.shadowBlur = 25;
+      ctx.beginPath();
+      ctx.arc(x, y, shieldRadius, 0, Math.PI * 2);
       ctx.stroke();
-      ctx.setLineDash([]);
+      // Double-stroke for extra glow
+      ctx.shadowBlur = 40;
+      ctx.globalAlpha = 0.4;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
       ctx.shadowBlur = 0;
 
-      // Inner white pulse
-      ctx.strokeStyle = `rgba(255, 255, 255, ${0.2 + shieldPulse * 0.2})`;
+      // Spinning dashed inner ring
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(this.time * 2);
+      ctx.strokeStyle = `rgba(255, 255, 255, ${0.25 + fastPulse * 0.25})`;
       ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 5]);
       ctx.beginPath();
-      ctx.arc(x, y, node.radius + 5, 0, Math.PI * 2);
+      ctx.arc(0, 0, node.radius + 6, 0, Math.PI * 2);
       ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+
+      // Small orbiting sparkle dots
+      for (let i = 0; i < 3; i++) {
+        const angle = this.time * 3 + (i * Math.PI * 2) / 3;
+        const orbitR = shieldRadius - 2;
+        const sx = x + Math.cos(angle) * orbitR;
+        const sy = y + Math.sin(angle) * orbitR;
+        ctx.fillStyle = `hsla(${(hue + i * 60) % 360}, 100%, 90%, ${0.6 + fastPulse * 0.4})`;
+        ctx.shadowColor = '#ffffff';
+        ctx.shadowBlur = 8;
+        ctx.beginPath();
+        ctx.arc(sx, sy, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.shadowBlur = 0;
     }
 
     // Ghost effect for dead players' remaining nodes (fade them out)

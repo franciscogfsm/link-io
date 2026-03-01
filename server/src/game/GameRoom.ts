@@ -65,7 +65,7 @@ const GOLD_NODE_LIFETIME = 6;        // seconds before gold node despawns
 
 // Respawn system
 const RESPAWN_TIME = 5; // seconds to respawn
-const RESPAWN_INVULN_TIME = 3; // seconds of invulnerability after respawn
+const RESPAWN_INVULN_TIME = 5; // seconds of invulnerability after respawn
 const RESPAWN_ENERGY = 100; // generous respawn energy for comeback
 
 // Health system
