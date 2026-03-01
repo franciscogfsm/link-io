@@ -108,6 +108,7 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
     input.setPlayerId(playerId);
     input.setOnCreateLink(handleCreateLink);
     input.setOnClickNode(handleClickNode);
+    interp.setLocalPlayer(playerId);
 
     // === WASD movement tracking ===
     const keysHeld = { w: false, a: false, s: false, d: false };
@@ -121,7 +122,15 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
       if (keysHeld.d) dx += 1;
       if (keysHeld.w) dy -= 1;
       if (keysHeld.s) dy += 1;
-      // Only emit when direction actually changes
+
+      // Normalize diagonal movement
+      const len = Math.sqrt(dx * dx + dy * dy);
+      if (len > 0) { dx /= len; dy /= len; }
+
+      // Feed direction to client-side prediction (instant response)
+      interp.setInput({ x: dx, y: dy });
+
+      // Only emit to server when direction actually changes
       if (dx !== lastDirX || dy !== lastDirY) {
         lastDirX = dx;
         lastDirY = dy;
@@ -474,10 +483,17 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
           setRespawnTimer(localPlayer.respawnTimer);
         }
 
+        // Client-side prediction: run physics prediction for local player core
+        interp.predict(dt);
+
         const interpolatedNodes = interp.interpolateNodes(state.nodes);
         const interpolatedState = { ...state, nodes: interpolatedNodes };
 
-        if (localPlayer) {
+        // Camera follows predicted position (instant) instead of waiting for server
+        const predictedPos = interp.predictedPosition;
+        if (predictedPos) {
+          camera.followTarget(predictedPos.x, predictedPos.y);
+        } else if (localPlayer) {
           const coreNode = interpolatedNodes.find((n) => n.id === localPlayer.coreNodeId);
           if (coreNode) camera.followTarget(coreNode.position.x, coreNode.position.y);
         }

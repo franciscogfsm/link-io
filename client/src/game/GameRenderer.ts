@@ -46,6 +46,8 @@ export class GameRenderer {
   private shakeTimer = 0;
   private floatingTexts: FloatingText[] = [];
   private emotes: EmoteDisplay[] = [];
+  private lastCanvasW = 0;
+  private lastCanvasH = 0;
 
   constructor(canvas: HTMLCanvasElement, camera: Camera) {
     this.canvas = canvas;
@@ -89,8 +91,17 @@ export class GameRenderer {
     validTargets: string[], deltaTime: number
   ): void {
     this.time += deltaTime;
-    this.canvas.width = window.innerWidth;
-    this.canvas.height = window.innerHeight;
+
+    // Only resize canvas when window dimensions actually change (avoids expensive context reset)
+    const ww = window.innerWidth;
+    const wh = window.innerHeight;
+    if (this.lastCanvasW !== ww || this.lastCanvasH !== wh) {
+      this.canvas.width = ww;
+      this.canvas.height = wh;
+      this.lastCanvasW = ww;
+      this.lastCanvasH = wh;
+    }
+
     const ctx = this.ctx;
 
     // Screen shake
@@ -107,7 +118,8 @@ export class GameRenderer {
     ctx.save();
     ctx.translate(this.shakeX, this.shakeY);
 
-    // Background
+    // Clear & Background
+    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     ctx.fillStyle = '#060612';
     ctx.fillRect(-10, -10, this.canvas.width + 20, this.canvas.height + 20);
     this.drawStarfield(ctx);

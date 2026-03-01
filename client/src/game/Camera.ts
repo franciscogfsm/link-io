@@ -13,7 +13,7 @@ export class Camera {
   targetZoom = 1;
   private minZoom = 0.3;
   private maxZoom = 2.5;
-  private smoothing = 0.08;
+  private smoothing = 12; // lerp speed (higher = snappier follow)
   private isDragging = false;
   private dragStartX = 0;
   private dragStartY = 0;
@@ -95,11 +95,12 @@ export class Camera {
     }
   }
 
-  update(_deltaTime = 0.016): void {
-    // No auto-reset — camera stays where the player put it
-    this.x += (this.targetX - this.x) * this.smoothing;
-    this.y += (this.targetY - this.y) * this.smoothing;
-    this.zoom += (this.targetZoom - this.zoom) * this.smoothing;
+  update(deltaTime = 0.016): void {
+    // Frame-rate independent exponential lerp
+    const factor = 1 - Math.exp(-this.smoothing * deltaTime);
+    this.x += (this.targetX - this.x) * factor;
+    this.y += (this.targetY - this.y) * factor;
+    this.zoom += (this.targetZoom - this.zoom) * factor;
   }
 
   applyTransform(ctx: CanvasRenderingContext2D): void {

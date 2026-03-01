@@ -79,8 +79,8 @@ const DAMAGE_COOLDOWN = 4;           // seconds before regen starts
 const MOVE_BASE_SPEED = 200;         // px/s base speed (with 0 nodes)
 const MOVE_MASS_PENALTY = 0.08;      // speed multiplier lost per owned node
 const MOVE_ENERGY_COST = 8;          // energy/s while moving
-const MOVE_ACCELERATION = 6;         // how fast you reach max speed (higher = snappier)
-const MOVE_FRICTION = 4;             // how fast you stop
+const MOVE_ACCELERATION = 12;        // how fast you reach max speed (higher = snappier)
+const MOVE_FRICTION = 8;             // how fast you stop
 const LINK_STRETCH_DISTANCE = 420;   // links start warning at this distance
 const LINK_BREAK_DISTANCE = 500;     // links snap at this distance
 
