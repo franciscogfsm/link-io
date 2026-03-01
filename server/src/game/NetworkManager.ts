@@ -15,6 +15,12 @@ export class NetworkManager {
   private networkBonusMultiplier = 0.015; // nerfed from 0.03
   private captureSpeed = 20; // % per second — 5s to capture a node
   private siphonRate = 0.8; // energy stolen per second per attacking link (nerfed from 1.5)
+  // Reusable maps to avoid per-tick allocations
+  private _playerMap = new Map<string, Player>();
+  private _nodeMap = new Map<string, GameNode>();
+  private _combatNodeMap = new Map<string, GameNode>();
+  private _linksByNode = new Map<string, GameLink[]>();
+  private _invulnerable = new Set<string>();
 
   createLink(
     fromNodeId: string,
@@ -79,12 +85,14 @@ export class NetworkManager {
     players: Player[],
     deltaTime: number
   ): void {
-    // Build player map for O(1) lookups
-    const playerMap = new Map<string, Player>();
+    // Build player map for O(1) lookups (reuse map)
+    const playerMap = this._playerMap;
+    playerMap.clear();
     for (const p of players) playerMap.set(p.id, p);
 
-    // Build node map for O(1) lookups
-    const nodeMap = new Map<string, GameNode>();
+    // Build node map for O(1) lookups (reuse map)
+    const nodeMap = this._nodeMap;
+    nodeMap.clear();
     for (const n of nodes) nodeMap.set(n.id, n);
 
     for (const player of players) {
@@ -143,6 +151,15 @@ export class NetworkManager {
           toNode.owner = link.owner;
           toNode.energy = 20;
 
+          // Reward the attacker for capturing a node
+          const attacker = playerMap.get(link.owner);
+          if (attacker) {
+            const captureReward = toNode.isPowerNode ? 8 : toNode.isMegaNode ? 10 : 3;
+            attacker.energy += captureReward;
+            attacker.score += 25;
+            attacker.nodesStolen++;
+          }
+
           // Remove all links from the previous owner to this node
           for (let i = links.length - 1; i >= 0; i--) {
             if (links[i].owner === previousOwner &&
@@ -164,10 +181,7 @@ export class NetworkManager {
       }
     }
 
-    // Energy flow visual
-    for (const link of links) {
-      link.energyFlow = Math.sin(Date.now() * 0.003) * 0.5 + 0.5;
-    }
+    // Energy flow visual — removed from server, client computes locally
   }
 
   handleCombat(
@@ -178,28 +192,30 @@ export class NetworkManager {
   ): { destroyedLinks: string[]; collapsedNodes: Map<string, string[]> } {
     const destroyedLinks: string[] = [];
     const collapsedNodes = new Map<string, string[]>();
-
-    // Build node map for O(1) lookups
-    const nodeMap = new Map<string, GameNode>();
+    // Build node map for O(1) lookups (reuse map)
+    const nodeMap = this._combatNodeMap;
+    nodeMap.clear();
     for (const n of nodes) nodeMap.set(n.id, n);
 
-    // Build set of invulnerable player IDs
-    const invulnerable = new Set<string>();
+    // Build set of invulnerable player IDs (reuse set)
+    const invulnerable = this._invulnerable;
+    invulnerable.clear();
     if (players) {
       for (const p of players) {
         if (p.invulnTimer > 0) invulnerable.add(p.id);
       }
     }
 
-    // Group links by their node endpoints for O(1) conflict detection
-    const linksByNode = new Map<string, GameLink[]>();
+    // Group links by their node endpoints (reuse map)
+    const linksByNode = this._linksByNode;
+    linksByNode.clear();
     for (const link of links) {
-      const fromList = linksByNode.get(link.fromNodeId) || [];
+      let fromList = linksByNode.get(link.fromNodeId);
+      if (!fromList) { fromList = []; linksByNode.set(link.fromNodeId, fromList); }
       fromList.push(link);
-      linksByNode.set(link.fromNodeId, fromList);
-      const toList = linksByNode.get(link.toNodeId) || [];
+      let toList = linksByNode.get(link.toNodeId);
+      if (!toList) { toList = []; linksByNode.set(link.toNodeId, toList); }
       toList.push(link);
-      linksByNode.set(link.toNodeId, toList);
     }
 
     for (const link of links) {

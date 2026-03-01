@@ -43,6 +43,7 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
   const [mapEventAnnouncement, setMapEventAnnouncement] = useState<{ name: string; type: string } | null>(null);
   const [deathInfo, setDeathInfo] = useState<{ killerName: string; isRevenge: boolean } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [warpMode, setWarpMode] = useState(false);
   const rendererRef = useRef<GameRenderer | null>(null);
   const cameraRef = useRef<Camera | null>(null);
   const inputRef = useRef<InputHandler | null>(null);
@@ -50,6 +51,7 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
   const stateRef = useRef<GameState | null>(null);
   const animRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
+  const warpModeRef = useRef(false);
 
   const handleCreateLink = useCallback((fromNodeId: string, toNodeId: string) => {
     socket.emit('game:createLink', { fromNodeId, toNodeId });
@@ -57,6 +59,23 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
 
   const handleUseAbility = useCallback((ability: AbilityType) => {
     socket.emit('game:useAbility', { ability });
+  }, [socket]);
+
+  const handleToggleWarp = useCallback(() => {
+    const newMode = !warpModeRef.current;
+    warpModeRef.current = newMode;
+    setWarpMode(newMode);
+    if (newMode) {
+      // Set input handler to warp mode
+      inputRef.current?.setWarpMode(true, (nodeId: string) => {
+        socket.emit('game:useAbility', { ability: 'warp' as AbilityType, targetNodeId: nodeId });
+        warpModeRef.current = false;
+        setWarpMode(false);
+        inputRef.current?.setWarpMode(false, null);
+      });
+    } else {
+      inputRef.current?.setWarpMode(false, null);
+    }
   }, [socket]);
 
   const handleUpgrade = useCallback((upgrade: UpgradeType) => {
@@ -121,7 +140,8 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
       if (e.key === 'q' || e.key === 'Q') handleUseAbility('surge');
       if (e.key === 'r' || e.key === 'R') handleUseAbility('shield');
       if (e.key === 'e' || e.key === 'E') handleUseAbility('emp');
-      if (e.key === 'Escape') setShowSettings((p) => !p);
+      if (e.key === ' ') { e.preventDefault(); handleToggleWarp(); }
+      if (e.key === 'Escape') { if (warpModeRef.current) { warpModeRef.current = false; setWarpMode(false); inputRef.current?.setWarpMode(false, null); } else { setShowSettings((p) => !p); } }
 
       // Emotes
       if (e.key === '1') socket.emit('game:emote', { emote: '(^o^)' });
@@ -238,7 +258,7 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
 
     socket.on('game:abilityUsed', (data) => {
       if (data.playerId === playerId) {
-        audioManager.playAbility(data.ability);
+        if (data.ability !== 'warp') audioManager.playAbility(data.ability);
       }
       const state = stateRef.current;
       if (state) {
@@ -247,9 +267,10 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
           const coreNode = state.nodes.find((n) => n.id === player.coreNodeId);
           if (coreNode) {
             const labels: Record<AbilityType, string> = {
-              surge: '[SURGE]',
-              shield: '[SHIELD]',
-              emp: '[EMP]',
+              surge: '[PULSE]',
+              shield: '[GUARD]',
+              emp: '[BLAST]',
+              warp: '[WARP]',
             };
             renderer.addFloatingText(
               labels[data.ability],
@@ -521,6 +542,8 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
             onUpgrade={handleUpgrade}
             isDead={isDead}
             respawnTimer={respawnTimer}
+            warpMode={warpMode}
+            onToggleWarp={handleToggleWarp}
           />
           <div className="hud-right">
             <Leaderboard 
@@ -602,7 +625,7 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
       {/* Controls hint */}
       {!showTutorial && !isWaiting && !isDead && (
         <div className="emote-hint">
-          [1-4] Emotes | [Q] Surge [R] Shield [E] EMP | [WASD] Move (costs energy!) | [ESC] Settings
+          [1-4] Emotes | [Q] Pulse [E] Blast [SPACE] Warp | [WASD] Move | Click & drag to link
         </div>
       )}
 

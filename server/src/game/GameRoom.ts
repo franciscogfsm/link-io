@@ -103,12 +103,14 @@ const ABILITY_COSTS: Record<AbilityType, number> = {
   surge: 40,
   shield: 30,
   emp: 60,
+  warp: 25,
 };
 
 const ABILITY_COOLDOWNS: Record<AbilityType, number> = {
   surge: 12,
   shield: 15,
   emp: 20,
+  warp: 10,
 };
 
 const PLAYER_COLORS = [
@@ -143,6 +145,10 @@ export class GameRoom {
   private currentArenaWidth: number;
   private currentArenaHeight: number;
   private lastPlayerCount = 0;
+  // Persistent lookup maps — rebuilt once per tick, reused by all subsystems
+  private nodeMap = new Map<string, GameNode>();
+  private playerMap = new Map<string, Player>();
+  private tickCount = 0;
 
   constructor(io: Server<ClientToServerEvents, ServerToClientEvents>, code: string, gameMode: GameMode = 'ffa') {
     this.id = uuidv4();
@@ -228,7 +234,7 @@ export class GameRoom {
       lastDamagedBy: null,
       combo: 0,
       comboTimer: 0,
-      abilityCooldowns: { surge: 0, shield: 0, emp: 0 },
+      abilityCooldowns: { surge: 0, shield: 0, emp: 0, warp: 0 },
       team,
       assists: 0,
       nodesStolen: 0,
@@ -427,7 +433,7 @@ export class GameRoom {
     player.nodeCount = 1;
     player.linkCount = 0;
     player.lastDamagedBy = null;
-    player.abilityCooldowns = { surge: 0, shield: 0, emp: 0 };
+    player.abilityCooldowns = { surge: 0, shield: 0, emp: 0, warp: 0 };
 
     // Team: assign same team
     // (team stays the same across respawns)
@@ -460,7 +466,7 @@ export class GameRoom {
     }
   }
 
-  private handleAbility(player: Player, ability: AbilityType): void {
+  private handleAbility(player: Player, ability: AbilityType, targetNodeId?: string): void {
     if (player.abilityCooldowns[ability] > 0) {
       const socket = this.sockets.get(player.id);
       socket?.emit('game:error', {
@@ -544,6 +550,39 @@ export class GameRoom {
         }
         this.io.to(this.id).emit('game:screenShake', { intensity: 15, duration: 0.6 });
         console.log(`[LINK.IO] 💣 ${player.name} used EMP! Range ${empRadius}, hit ${targetNodes.length / 2} links`);
+        break;
+      }
+
+      case 'warp': {
+        if (!targetNodeId) {
+          const socket = this.sockets.get(player.id);
+          socket?.emit('game:error', { message: 'Select a node to warp to!' });
+          // Refund
+          player.energy += ABILITY_COSTS.warp;
+          player.abilityCooldowns.warp = 0;
+          return;
+        }
+        const targetNode = this.state.nodes.find((n: GameNode) => n.id === targetNodeId);
+        if (!targetNode || targetNode.owner !== player.id || targetNode.isCore) {
+          const socket = this.sockets.get(player.id);
+          socket?.emit('game:error', { message: 'Invalid warp target!' });
+          player.energy += ABILITY_COSTS.warp;
+          player.abilityCooldowns.warp = 0;
+          return;
+        }
+        // Swap core status
+        const oldCore = this.state.nodes.find((n: GameNode) => n.id === player.coreNodeId);
+        if (oldCore) {
+          oldCore.isCore = false;
+          oldCore.radius = 12; // becomes a regular (slightly bigger) node
+        }
+        targetNode.isCore = true;
+        targetNode.radius = 18;
+        player.coreNodeId = targetNode.id;
+        targetNodes.push(targetNode.id);
+        if (oldCore) targetNodes.push(oldCore.id);
+        this.io.to(this.id).emit('game:screenShake', { intensity: 5, duration: 0.3 });
+        console.log(`[LINK.IO] 🌀 ${player.name} WARPED to node ${targetNode.id}`);
         break;
       }
     }
@@ -653,9 +692,9 @@ export class GameRoom {
       }
     });
 
-    socket.on('game:useAbility', (data: { ability: AbilityType }) => {
+    socket.on('game:useAbility', (data: { ability: AbilityType; targetNodeId?: string }) => {
       if (this.state.gamePhase !== 'playing' || !player.alive) return;
-      this.handleAbility(player, data.ability);
+      this.handleAbility(player, data.ability, data.targetNodeId);
     });
 
     socket.on('game:upgrade', (data: { upgrade: UpgradeType }) => {
@@ -846,13 +885,22 @@ export class GameRoom {
     console.log(`[LINK.IO] Players: ${this.state.players.map((p: Player) => p.name).join(', ')}\n`);
 
     this.io.to(this.id).emit('game:started', this.state);
-    this.tickInterval = setInterval(() => this.tick(), TICK_INTERVAL);
+    // Use recursive setTimeout instead of setInterval to prevent tick stacking
+    const scheduleTick = () => {
+      this.tickInterval = setTimeout(() => {
+        this.tick();
+        if (this.state.gamePhase === 'playing') scheduleTick();
+      }, TICK_INTERVAL) as unknown as ReturnType<typeof setInterval>;
+    };
+    scheduleTick();
   }
 
   private tick(): void {
     const now = Date.now();
-    const deltaTime = (now - this.lastTick) / 1000;
+    // Clamp deltaTime to prevent physics/damage spikes after GC pauses
+    const deltaTime = Math.min((now - this.lastTick) / 1000, 0.1);
     this.lastTick = now;
+    this.tickCount++;
 
     if (this.state.gamePhase !== 'playing') return;
 
@@ -893,7 +941,7 @@ export class GameRoom {
       }
 
       // Ability cooldowns
-      for (const ab of ['surge', 'shield', 'emp'] as AbilityType[]) {
+      for (const ab of ['surge', 'shield', 'emp', 'warp'] as AbilityType[]) {
         if (player.abilityCooldowns[ab] > 0) {
           player.abilityCooldowns[ab] = Math.max(0, player.abilityCooldowns[ab] - deltaTime);
         }
@@ -905,7 +953,7 @@ export class GameRoom {
         if (n.owner === player.id && n.isMegaNode) megaNodeCount++;
       }
       if (megaNodeCount > 0) {
-        for (const ab of ['surge', 'shield', 'emp'] as AbilityType[]) {
+        for (const ab of ['surge', 'shield', 'emp', 'warp'] as AbilityType[]) {
           if (player.abilityCooldowns[ab] > 0) {
             player.abilityCooldowns[ab] = Math.max(
               0,
@@ -919,17 +967,20 @@ export class GameRoom {
       const territoryScore = player.nodeCount * 0.5 + player.linkCount * 0.3;
       player.score += territoryScore * deltaTime;
 
-      // Longest chain tracking
-      const chain = this.calculateLongestChain(player.id);
-      if (chain > player.longestChain) {
-        player.longestChain = chain;
-        if (chain >= 8) player.score += 50; // chain milestone bonus
+      // Longest chain tracking (every 5 ticks to save CPU)
+      if (this.tickCount % 5 === 0) {
+        const chain = this.calculateLongestChain(player.id);
+        if (chain > player.longestChain) {
+          player.longestChain = chain;
+          if (chain >= 8) player.score += 50; // chain milestone bonus
+        }
       }
 
       // Comeback mechanic: players with fewer nodes get energy boost
       if (player.nodeCount <= 3 && player.alive) {
-        const alivePlayers = this.state.players.filter(p => p.alive);
-        const avgNodes = alivePlayers.reduce((s, p) => s + p.nodeCount, 0) / Math.max(alivePlayers.length, 1);
+        let aliveCount = 0; let totalNodes = 0;
+        for (const p of this.state.players) { if (p.alive) { aliveCount++; totalNodes += p.nodeCount; } }
+        const avgNodes = totalNodes / Math.max(aliveCount, 1);
         if (player.nodeCount < avgNodes * 0.5) {
           // Underdog boost: faster energy regen (nerfed from 2)
           player.energy += 1 * deltaTime;
@@ -1144,10 +1195,12 @@ export class GameRoom {
     }
 
     // ============ CORE DAMAGE — HP SYSTEM ============
-    // Build lookup maps for O(1) access (avoids repeated .find() calls)
-    const nodeMap = new Map<string, GameNode>();
+    // Reuse persistent lookup maps (rebuilt once per tick at top)
+    const nodeMap = this.nodeMap;
+    nodeMap.clear();
     for (const n of this.state.nodes) nodeMap.set(n.id, n);
-    const playerMap = new Map<string, Player>();
+    const playerMap = this.playerMap;
+    playerMap.clear();
     for (const p of this.state.players) playerMap.set(p.id, p);
 
     // Track which cores are being attacked (for health regen check later)
@@ -1291,9 +1344,15 @@ export class GameRoom {
       }
     }
 
-    // Clean old kill feed entries (older than 10 seconds)
+    // Clean old kill feed entries (older than 10 seconds) — mutate in place
     const cutoff = Date.now() - 10000;
-    this.state.killFeed = this.state.killFeed.filter((e: KillFeedEntry) => e.timestamp > cutoff);
+    let writeIdx = 0;
+    for (let i = 0; i < this.state.killFeed.length; i++) {
+      if (this.state.killFeed[i].timestamp > cutoff) {
+        this.state.killFeed[writeIdx++] = this.state.killFeed[i];
+      }
+    }
+    this.state.killFeed.length = writeIdx;
 
     // ============ DYNAMIC MAP EVENTS ============
     this.eventTimer += deltaTime;
@@ -1317,7 +1376,9 @@ export class GameRoom {
         this.io.to(this.id).emit('game:mapEventEnded', { eventId: evt.id });
       }
     }
-    this.state.mapEvents = [...this.activeEvents];
+    // Reuse array instead of spreading
+    this.state.mapEvents.length = 0;
+    for (const evt of this.activeEvents) this.state.mapEvents.push(evt);
 
     // ============ TEAM SCORES ============
     if (this.gameMode === 'teams') {
@@ -1329,14 +1390,104 @@ export class GameRoom {
       }
     }
 
-    this.io.to(this.id).emit('game:state', this.state);
+    // Build and emit slim state (strip server-only fields to reduce bandwidth)
+    this.io.to(this.id).emit('game:state', this.buildClientState());
+  }
+
+  /** Build a lightweight copy of state for network transmission.
+   *  Strips velocity, driftPhase/Speed/Amplitude, and server-internal player fields. */
+  private _clientNodes: any[] = [];
+  private _clientLinks: any[] = [];
+  private _clientPlayers: any[] = [];
+  private buildClientState(): any {
+    // Reuse arrays
+    this._clientNodes.length = 0;
+    for (const n of this.state.nodes) {
+      this._clientNodes.push({
+        id: n.id,
+        position: n.position,
+        radius: n.radius,
+        owner: n.owner,
+        energy: n.energy,
+        isCore: n.isCore,
+        isPowerNode: n.isPowerNode,
+        isMegaNode: n.isMegaNode,
+        isGoldNode: n.isGoldNode,
+        goldEnergy: n.goldEnergy,
+        goldExpireTimer: n.goldExpireTimer,
+        captureProgress: n.captureProgress,
+        capturedBy: n.capturedBy,
+        // velocity, driftPhase, driftSpeed, driftAmplitude stripped
+      });
+    }
+
+    this._clientLinks.length = 0;
+    for (const l of this.state.links) {
+      this._clientLinks.push({
+        id: l.id,
+        fromNodeId: l.fromNodeId,
+        toNodeId: l.toNodeId,
+        owner: l.owner,
+        health: l.health,
+        maxHealth: l.maxHealth,
+        shielded: l.shielded,
+        // energyFlow stripped — client computes locally
+      });
+    }
+
+    this._clientPlayers.length = 0;
+    for (const p of this.state.players) {
+      this._clientPlayers.push({
+        id: p.id,
+        name: p.name,
+        color: p.color,
+        energy: p.energy,
+        health: p.health,
+        maxHealth: p.maxHealth,
+        coreNodeId: p.coreNodeId,
+        nodeCount: p.nodeCount,
+        linkCount: p.linkCount,
+        alive: p.alive,
+        score: p.score,
+        killCount: p.killCount,
+        deaths: p.deaths,
+        killStreak: p.killStreak,
+        respawnTimer: p.respawnTimer,
+        invulnTimer: p.invulnTimer,
+        combo: p.combo,
+        comboTimer: p.comboTimer,
+        abilityCooldowns: p.abilityCooldowns,
+        team: p.team,
+        upgrades: p.upgrades,
+        clickStreak: p.clickStreak,
+        clickStreakTimer: p.clickStreakTimer,
+        // Stripped: lastKilledBy, lastDamagedBy, bestStreak, bestClickStreak,
+        //          totalClicks, longestChain, totalEnergyGenerated, assists, nodesStolen
+      });
+    }
+
+    return {
+      nodes: this._clientNodes,
+      links: this._clientLinks,
+      players: this._clientPlayers,
+      killFeed: this.state.killFeed,
+      timeRemaining: this.state.timeRemaining,
+      gamePhase: this.state.gamePhase,
+      winner: this.state.winner,
+      arenaWidth: this.state.arenaWidth,
+      arenaHeight: this.state.arenaHeight,
+      gameMode: this.state.gameMode,
+      teamScores: this.state.teamScores,
+      mapEvents: this.state.mapEvents,
+      nextEventIn: this.state.nextEventIn,
+    };
   }
 
   private endGame(): void {
     this.state.gamePhase = 'ended';
 
     if (this.tickInterval) {
-      clearInterval(this.tickInterval);
+      clearTimeout(this.tickInterval);
       this.tickInterval = null;
     }
 
@@ -1459,7 +1610,7 @@ export class GameRoom {
             return Math.sqrt(dx * dx + dy * dy) < event.radius;
           });
           if (hasNodeInZone) {
-            for (const ab of ['surge', 'shield', 'emp'] as AbilityType[]) {
+            for (const ab of ['surge', 'shield', 'emp', 'warp'] as AbilityType[]) {
               if (player.abilityCooldowns[ab] > 0) {
                 player.abilityCooldowns[ab] = Math.max(
                   0,
@@ -1476,28 +1627,48 @@ export class GameRoom {
     }
   }
 
-  // Calculate longest connected chain from a player's core
+  // Calculate longest connected chain from a player's core — O(N+L) with adjacency list
+  private _chainAdjacency = new Map<string, string[]>();
+  private _chainVisited = new Set<string>();
+  private _chainQueue: Array<{ id: string; depth: number }> = [];
   private calculateLongestChain(playerId: string): number {
-    const playerLinks = this.state.links.filter(l => l.owner === playerId);
-    const playerNodes = this.state.nodes.filter(n => n.owner === playerId);
-    const coreNode = playerNodes.find(n => n.isCore);
-    if (!coreNode || playerLinks.length === 0) return 1;
+    const adj = this._chainAdjacency;
+    adj.clear();
+    let coreId: string | null = null;
+    let hasLinks = false;
 
-    // BFS: find max depth from core
-    const visited = new Set<string>();
-    const queue: Array<{ id: string; depth: number }> = [{ id: coreNode.id, depth: 0 }];
-    visited.add(coreNode.id);
+    for (const n of this.state.nodes) {
+      if (n.owner === playerId && n.isCore) coreId = n.id;
+    }
+    if (!coreId) return 1;
+
+    for (const l of this.state.links) {
+      if (l.owner !== playerId) continue;
+      hasLinks = true;
+      let fromList = adj.get(l.fromNodeId);
+      if (!fromList) { fromList = []; adj.set(l.fromNodeId, fromList); }
+      fromList.push(l.toNodeId);
+      let toList = adj.get(l.toNodeId);
+      if (!toList) { toList = []; adj.set(l.toNodeId, toList); }
+      toList.push(l.fromNodeId);
+    }
+    if (!hasLinks) return 1;
+
+    const visited = this._chainVisited;
+    visited.clear();
+    const queue = this._chainQueue;
+    queue.length = 0;
+    queue.push({ id: coreId, depth: 0 });
+    visited.add(coreId);
     let maxDepth = 0;
+    let head = 0;
 
-    while (queue.length > 0) {
-      const { id, depth } = queue.shift()!;
-      maxDepth = Math.max(maxDepth, depth);
-
-      const connected = playerLinks.filter(
-        l => l.fromNodeId === id || l.toNodeId === id
-      );
-      for (const link of connected) {
-        const neighborId = link.fromNodeId === id ? link.toNodeId : link.fromNodeId;
+    while (head < queue.length) {
+      const { id, depth } = queue[head++];
+      if (depth > maxDepth) maxDepth = depth;
+      const neighbors = adj.get(id);
+      if (!neighbors) continue;
+      for (const neighborId of neighbors) {
         if (!visited.has(neighborId)) {
           visited.add(neighborId);
           queue.push({ id: neighborId, depth: depth + 1 });
@@ -1505,13 +1676,13 @@ export class GameRoom {
       }
     }
 
-    return maxDepth + 1; // nodes, not edges
+    return maxDepth + 1;
   }
 
   isEmpty(): boolean { return this.state.players.length === 0; }
 
   destroy(): void {
-    if (this.tickInterval) { clearInterval(this.tickInterval); this.tickInterval = null; }
+    if (this.tickInterval) { clearTimeout(this.tickInterval); this.tickInterval = null; }
     if (this.startTimeout) { clearTimeout(this.startTimeout); this.startTimeout = null; }
   }
 }

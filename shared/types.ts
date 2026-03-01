@@ -39,7 +39,7 @@ export interface GameLink {
   shielded: boolean;
 }
 
-export type AbilityType = 'surge' | 'shield' | 'emp';
+export type AbilityType = 'surge' | 'shield' | 'emp' | 'warp';
 
 // ============================================================
 // UPGRADE SYSTEM — 12 upgrades across 4 categories
@@ -158,6 +158,7 @@ export interface AbilityCooldown {
   surge: number;
   shield: number;
   emp: number;
+  warp: number;
 }
 
 export interface Player {
@@ -302,7 +303,7 @@ export interface ClientToServerEvents {
   'game:createLink': (data: { fromNodeId: string; toNodeId: string }) => void;
   'game:destroyLink': (data: { linkId: string }) => void;
   'game:claimNode': (data: { nodeId: string }) => void;
-  'game:useAbility': (data: { ability: AbilityType }) => void;
+  'game:useAbility': (data: { ability: AbilityType; targetNodeId?: string }) => void;
   'game:upgrade': (data: { upgrade: UpgradeType }) => void;
   'game:clickNode': (data: { nodeId: string }) => void;
   'game:emote': (data: { emote: string }) => void;

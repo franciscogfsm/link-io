@@ -29,9 +29,11 @@ interface HUDProps {
   onUpgrade: (upgrade: UpgradeType) => void;
   isDead?: boolean;
   respawnTimer?: number;
+  warpMode?: boolean;
+  onToggleWarp?: () => void;
 }
 
-export default function HUD({ player, state, roomCode, onUseAbility, onUpgrade, isDead, respawnTimer }: HUDProps) {
+export default function HUD({ player, state, roomCode, onUseAbility, onUpgrade, isDead, respawnTimer, warpMode, onToggleWarp }: HUDProps) {
   const [showUpgrades, setShowUpgrades] = useState(false);
   const [activeTab, setActiveTab] = useState<string>('DEFENSE');
   const minutes = Math.floor(state.timeRemaining / 60);
@@ -48,41 +50,65 @@ export default function HUD({ player, state, roomCode, onUseAbility, onUpgrade, 
     100
   );
 
-  const abilities: { type: AbilityType; icon: React.ReactNode; label: string; cost: number; key: string }[] = [
+  const abilities: { type: AbilityType; icon: React.ReactNode; label: string; desc: string; cost: number; key: string; color: string }[] = [
     {
       type: 'surge',
       icon: (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
           <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
         </svg>
       ),
-      label: 'SURGE',
+      label: 'PULSE',
+      desc: 'Zap enemy links on your nodes',
       cost: 40,
-      key: 'Q'
+      key: 'Q',
+      color: '#00f0ff',
     },
     {
       type: 'shield',
       icon: (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
           <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
         </svg>
       ),
-      label: 'SHIELD',
+      label: 'GUARD',
+      desc: 'Shield all links for 5s',
       cost: 30,
-      key: 'R'
+      key: 'R',
+      color: '#39ff14',
     },
     {
       type: 'emp',
       icon: (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="10"></circle>
-          <line x1="12" y1="8" x2="12" y2="12"></line>
-          <line x1="12" y1="16" x2="12.01" y2="16"></line>
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="9"></circle>
+          <circle cx="12" cy="12" r="4"></circle>
+          <line x1="12" y1="3" x2="12" y2="7"></line>
+          <line x1="12" y1="17" x2="12" y2="21"></line>
+          <line x1="3" y1="12" x2="7" y2="12"></line>
+          <line x1="17" y1="12" x2="21" y2="12"></line>
         </svg>
       ),
-      label: 'EMP',
+      label: 'BLAST',
+      desc: '500px explosion from core',
       cost: 60,
-      key: 'E'
+      key: 'E',
+      color: '#ff006e',
+    },
+    {
+      type: 'warp',
+      icon: (
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M12 2v4M12 18v4M2 12h4M18 12h4"></path>
+          <path d="M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path>
+        </svg>
+      ),
+      label: 'WARP',
+      desc: 'Teleport core to owned node',
+      cost: 25,
+      key: 'SPACE',
+      color: '#bf5fff',
     },
   ];
 
@@ -206,30 +232,50 @@ export default function HUD({ player, state, roomCode, onUseAbility, onUpgrade, 
             {abilities.map((ab) => {
               const cd = player.abilityCooldowns[ab.type];
               const canUse = cd <= 0 && energy >= ab.cost;
-              const cdPercent = cd > 0 ? (cd / (ab.type === 'surge' ? 12 : ab.type === 'shield' ? 15 : 20)) * 100 : 0;
+              const maxCd = ab.type === 'surge' ? 12 : ab.type === 'shield' ? 15 : ab.type === 'emp' ? 20 : 10;
+              const cdPercent = cd > 0 ? (cd / maxCd) * 100 : 0;
+              const isWarpActive = ab.type === 'warp' && warpMode;
 
               return (
                 <button
                   key={ab.type}
-                  className={`ability-btn ${canUse ? 'ready' : 'cooldown'}`}
-                  onClick={() => canUse && onUseAbility(ab.type)}
-                  disabled={!canUse}
-                  title={`${ab.label} (${ab.key}) - ${ab.cost} energy`}
+                  className={`ability-btn ${canUse ? 'ready' : 'cooldown'} ${isWarpActive ? 'warp-active' : ''}`}
+                  onClick={() => {
+                    if (ab.type === 'warp' && canUse) {
+                      onToggleWarp?.();
+                    } else if (canUse) {
+                      onUseAbility(ab.type);
+                    }
+                  }}
+                  disabled={!canUse && !isWarpActive}
+                  title={`${ab.label}: ${ab.desc}`}
                   id={`ability-${ab.type}`}
+                  style={{
+                    '--ability-color': ab.color,
+                  } as React.CSSProperties}
                 >
                   <div className="ability-icon">{ab.icon}</div>
+                  <div className="ability-label">{ab.label}</div>
                   <div className="ability-key">{ab.key}</div>
+                  <div className="ability-desc">{ab.desc}</div>
                   {cd > 0 && (
                     <>
                       <div className="ability-cd-overlay" style={{ height: `${cdPercent}%` }} />
                       <div className="ability-cd-text">{Math.ceil(cd)}s</div>
                     </>
                   )}
-                  {canUse && <div className="ability-cost">{ab.cost}</div>}
+                  {canUse && <div className="ability-cost">{ab.cost}⚡</div>}
                 </button>
               );
             })}
           </div>
+
+          {/* Warp mode indicator */}
+          {warpMode && (
+            <div className="warp-mode-hint">
+              🌀 CLICK AN OWNED NODE TO WARP — Press SPACE again to cancel
+            </div>
+          )}
 
           {/* Click streak indicator */}
           {player.clickStreak >= 3 && (

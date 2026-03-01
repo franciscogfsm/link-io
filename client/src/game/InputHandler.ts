@@ -27,6 +27,8 @@ export class InputHandler {
   private hoverNodeId: string | null = null;
   private _validTargets: string[] = [];
   private clickRadius = 45; // larger for easier clicking!
+  private _warpMode = false;
+  private _warpCallback: ((nodeId: string) => void) | null = null;
 
   constructor(canvas: HTMLCanvasElement, camera: Camera) {
     this.canvas = canvas;
@@ -67,6 +69,15 @@ export class InputHandler {
     this.onClickNode = callback;
   }
 
+  setWarpMode(active: boolean, callback: ((nodeId: string) => void) | null) {
+    this._warpMode = active;
+    this._warpCallback = callback;
+  }
+
+  get warpMode(): boolean {
+    return this._warpMode;
+  }
+
   private updateValidTargets(): void {
     if (!this._dragState.active || !this._dragState.fromNodeId) {
       this._validTargets = [];
@@ -104,6 +115,14 @@ export class InputHandler {
       if (e.button !== 0) return;
       const world = this.camera.screenToWorld(e.clientX, e.clientY);
       const node = this.findNodeAt(world.x, world.y);
+
+      // Warp mode: click on owned non-core node to warp
+      if (this._warpMode && node && node.owner === this.playerId && !node.isCore) {
+        this._warpCallback?.(node.id);
+        return;
+      }
+      // Cancel warp mode if click missed
+      if (this._warpMode) return;
 
       if (node && node.owner === this.playerId) {
         console.log('[LINK.IO Input] Started drag from node:', node.id, 'at', node.position);

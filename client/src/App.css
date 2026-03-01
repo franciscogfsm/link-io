@@ -964,53 +964,88 @@ html, body, #root {
 /* ==================== Abilities ==================== */
 
 .hud-abilities {
-  display: flex;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
   pointer-events: auto;
 }
 
 .ability-btn {
-  width: 56px;
-  height: 56px;
   position: relative;
   border-radius: 10px;
-  border: 2px solid rgba(255, 255, 255, 0.15);
-  background: rgba(15, 15, 40, 0.9);
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  background: rgba(15, 15, 40, 0.92);
   cursor: pointer;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 1px;
+  padding: 6px 4px 4px;
   transition: all 0.2s ease;
   overflow: hidden;
+  min-height: 64px;
 }
 
 .ability-btn.ready {
-  border-color: var(--accent-cyan);
-  box-shadow: 0 0 15px var(--glow-cyan);
+  border-color: var(--ability-color);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--ability-color) 25%, transparent);
 }
 
 .ability-btn.ready:hover {
-  transform: scale(1.1);
-  box-shadow: 0 0 25px var(--glow-cyan);
+  transform: scale(1.05);
+  box-shadow: 0 0 20px color-mix(in srgb, var(--ability-color) 40%, transparent);
+  border-color: var(--ability-color);
 }
 
 .ability-btn.cooldown {
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
+.ability-btn.warp-active {
+  border-color: #bf5fff !important;
+  box-shadow: 0 0 20px rgba(191, 95, 255, 0.4) !important;
+  animation: warpPulse 0.8s ease infinite;
+}
+
+@keyframes warpPulse {
+  0%, 100% { box-shadow: 0 0 15px rgba(191, 95, 255, 0.3); }
+  50% { box-shadow: 0 0 30px rgba(191, 95, 255, 0.6); }
+}
+
 .ability-icon {
-  font-size: 20px;
+  font-size: 18px;
+  z-index: 2;
+  color: var(--ability-color);
+}
+
+.ability-label {
+  font-family: var(--font-display);
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  color: var(--text-primary);
   z-index: 2;
 }
 
 .ability-key {
   font-family: var(--font-display);
-  font-size: 9px;
-  color: var(--text-secondary);
+  font-size: 7px;
+  color: rgba(255, 255, 255, 0.35);
   letter-spacing: 1px;
   z-index: 2;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.ability-desc {
+  font-size: 7px;
+  color: rgba(255, 255, 255, 0.3);
+  text-align: center;
+  line-height: 1.1;
+  z-index: 2;
+  max-width: 90px;
 }
 
 .ability-cd-overlay {
@@ -1029,20 +1064,41 @@ html, body, #root {
   left: 50%;
   transform: translate(-50%, -50%);
   font-family: var(--font-display);
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 700;
   color: var(--text-primary);
   z-index: 3;
+  text-shadow: 0 0 8px rgba(0,0,0,0.8);
 }
 
 .ability-cost {
   position: absolute;
-  bottom: 2px;
-  right: 4px;
+  top: 3px;
+  right: 5px;
   font-family: var(--font-display);
   font-size: 8px;
-  color: var(--accent-cyan);
+  color: var(--ability-color);
   z-index: 2;
+  opacity: 0.8;
+}
+
+.warp-mode-hint {
+  background: rgba(191, 95, 255, 0.15);
+  border: 1px solid rgba(191, 95, 255, 0.4);
+  border-radius: 8px;
+  padding: 6px 12px;
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: #bf5fff;
+  animation: warpHintPulse 1.5s ease infinite;
+  pointer-events: auto;
+}
+
+@keyframes warpHintPulse {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
 }
 
 /* ==================== Upgrade Shop ==================== */

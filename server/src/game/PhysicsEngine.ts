@@ -14,10 +14,19 @@ export class PhysicsEngine {
   private separationForce = 0.15;
   private maxSpeed = 1.5;
   private damping = 0.98;
+  // Spatial grid for O(N) separation instead of O(N²)
+  private gridCellSize = 100; // slightly bigger than separationDistance
+  private grid = new Map<number, GameNode[]>();
 
   constructor(arenaWidth: number, arenaHeight: number) {
     this.arenaWidth = arenaWidth;
     this.arenaHeight = arenaHeight;
+  }
+
+  private getCellKey(x: number, y: number): number {
+    const cx = (x / this.gridCellSize) | 0;
+    const cy = (y / this.gridCellSize) | 0;
+    return cx * 10000 + cy; // cheap hash, supports up to 10000 columns
   }
 
   update(nodes: GameNode[], deltaTime: number): void {
@@ -49,23 +58,40 @@ export class PhysicsEngine {
       node.position.y = Math.max(20, Math.min(this.arenaHeight - 20, node.position.y));
     }
 
-    // Node separation forces
-    for (let i = 0; i < nodes.length; i++) {
-      for (let j = i + 1; j < nodes.length; j++) {
-        const a = nodes[i];
-        const b = nodes[j];
-        const dx = b.position.x - a.position.x;
-        const dy = b.position.y - a.position.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
+    // Build spatial grid for separation (O(N) instead of O(N²))
+    this.grid.clear();
+    for (const node of nodes) {
+      const key = this.getCellKey(node.position.x, node.position.y);
+      let cell = this.grid.get(key);
+      if (!cell) { cell = []; this.grid.set(key, cell); }
+      cell.push(node);
+    }
 
-        if (dist < this.separationDistance && dist > 0) {
-          const force = (this.separationDistance - dist) / this.separationDistance * this.separationForce;
-          const nx = dx / dist;
-          const ny = dy / dist;
-          a.velocity.x -= nx * force;
-          a.velocity.y -= ny * force;
-          b.velocity.x += nx * force;
-          b.velocity.y += ny * force;
+    // Node separation forces — only check neighboring cells
+    const sepDist = this.separationDistance;
+    const sepForce = this.separationForce;
+    for (const node of nodes) {
+      const cx = (node.position.x / this.gridCellSize) | 0;
+      const cy = (node.position.y / this.gridCellSize) | 0;
+      // Check 3x3 neighborhood
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          const cell = this.grid.get((cx + dx) * 10000 + (cy + dy));
+          if (!cell) continue;
+          for (const other of cell) {
+            if (other === node) continue;
+            const ddx = other.position.x - node.position.x;
+            const ddy = other.position.y - node.position.y;
+            const distSq = ddx * ddx + ddy * ddy;
+            if (distSq < sepDist * sepDist && distSq > 0) {
+              const dist = Math.sqrt(distSq);
+              const force = (sepDist - dist) / sepDist * sepForce * 0.5; // halved since each pair processed twice
+              const nx = ddx / dist;
+              const ny = ddy / dist;
+              node.velocity.x -= nx * force;
+              node.velocity.y -= ny * force;
+            }
+          }
         }
       }
     }
