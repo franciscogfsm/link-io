@@ -1,0 +1,19 @@
+﻿src/game/AntiCheat.ts(5,49): error TS2307: Cannot find module '../../shared/types.js' or its corresponding type declarations.
+src/game/GameRoom.ts(8,104): error TS2307: Cannot find module '../../shared/types.js' or its corresponding type declarations.
+src/game/GameRoom.ts(124,55): error TS7006: Parameter 'p' implicitly has an 'any' type.
+src/game/GameRoom.ts(130,49): error TS7006: Parameter 'l' implicitly has an 'any' type.
+src/game/GameRoom.ts(139,8): error TS7006: Parameter 'n' implicitly has an 'any' type.
+src/game/GameRoom.ts(150,55): error TS7006: Parameter 'p' implicitly has an 'any' type.
+src/game/GameRoom.ts(164,35): error TS7006: Parameter 'data' implicitly has an 'any' type.
+src/game/GameRoom.ts(195,47): error TS7006: Parameter 'n' implicitly has an 'any' type.
+src/game/GameRoom.ts(205,36): error TS7006: Parameter 'data' implicitly has an 'any' type.
+src/game/GameRoom.ts(234,34): error TS7006: Parameter 'data' implicitly has an 'any' type.
+src/game/GameRoom.ts(303,10): error TS7006: Parameter 'n' implicitly has an 'any' type.
+src/game/GameRoom.ts(311,53): error TS7006: Parameter 'p' implicitly has an 'any' type.
+src/game/NetworkManager.ts(7,49): error TS2307: Cannot find module '../../shared/types.js' or its corresponding type declarations.
+src/game/NodeGenerator.ts(7,37): error TS2307: Cannot find module '../../shared/types.js' or its corresponding type declarations.
+src/game/PhysicsEngine.ts(6,31): error TS2307: Cannot find module '../../shared/types.js' or its corresponding type declarations.
+src/index.ts(10,65): error TS2307: Cannot find module '../shared/types.js' or its corresponding type declarations.
+src/rooms/RoomManager.ts(7,75): error TS2307: Cannot find module '../../shared/types.js' or its corresponding type declarations.
+src/rooms/RoomManager.ts(29,31): error TS7006: Parameter 'data' implicitly has an 'any' type.
+src/rooms/RoomManager.ts(37,37): error TS7006: Parameter 'data' implicitly has an 'any' type.
