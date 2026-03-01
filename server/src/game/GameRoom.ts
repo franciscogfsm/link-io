@@ -1714,14 +1714,14 @@ export class GameRoom {
       // Cap max XP per game so grinding feels slow
       xp = Math.min(xp, 150);
 
-      // Calculate COINS earned
-      let coins = 10; // base coins per game
-      coins += player.killCount * 8; // per kill
-      coins += Math.floor(player.score / 100) * 3; // per 100 score
-      if (sortedPlayers[0]?.id === player.id) coins += 40; // winner bonus
-      if (this.gameMode === 'teams' && winningTeam && player.team === winningTeam) coins += 25;
-      if (player.bestStreak >= 3) coins += 15;
-      if (player.bestStreak >= 5) coins += 30;
+      // Calculate COINS earned (deliberately scarce — use codes for big gains)
+      let coins = 4; // base coins per game
+      coins += player.killCount * 3; // per kill
+      coins += Math.floor(player.score / 100) * 1; // per 100 score
+      if (sortedPlayers[0]?.id === player.id) coins += 18; // winner bonus
+      if (this.gameMode === 'teams' && winningTeam && player.team === winningTeam) coins += 10;
+      if (player.bestStreak >= 3) coins += 5;
+      if (player.bestStreak >= 5) coins += 10;
 
       const socket = this.sockets.get(player.id);
       socket?.emit('game:ended', {

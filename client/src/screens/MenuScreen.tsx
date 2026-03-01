@@ -11,7 +11,7 @@ import {
   getLevelFromXP, xpToNextLevel, xpForLevel, LEVEL_TITLES,
   ALL_COSMETICS, RARITY_COLORS, RARITY_LABELS,
   LOOT_BOXES, DAILY_REWARDS, PITY_THRESHOLD, LEGENDARY_PITY,
-  getPetBonusLabels, PET_BONUSES,
+  getPetBonusLabels, PET_BONUSES, REDEEM_CODES,
 } from '../../../shared/types';
 
 // ======== Progression helpers ========
@@ -158,7 +158,7 @@ interface MenuScreenProps {
 }
 
 // ======== View states for the shop overlay ========
-type ShopView = 'main' | 'collection' | 'crates' | 'daily';
+type ShopView = 'main' | 'collection' | 'crates' | 'daily' | 'redeem';
 
 export default function MenuScreen({ onPlay, onCreateLobby, onJoinLobby, error, connecting, roomCode, playerId, lobbyInfo, queueStatus, onLobbySetTeam, onLobbyToggleReady, onLobbyStartGame }: MenuScreenProps) {
   const [name, setName] = useState(() => localStorage.getItem('linkio-name') || '');
@@ -177,6 +177,10 @@ export default function MenuScreen({ onPlay, onCreateLobby, onJoinLobby, error, 
   const [boxResult, setBoxResult] = useState<{ item: CosmeticItem; rarity: CosmeticRarity; isDuplicate: boolean } | null>(null);
   const [boxAnimPhase, setBoxAnimPhase] = useState<'idle' | 'spinning' | 'reveal'>('idle');
   const [reelItems, setReelItems] = useState<{ item: CosmeticItem; rarity: CosmeticRarity }[]>([]);
+
+  // Redeem code state
+  const [codeInput, setCodeInput] = useState('');
+  const [codeResult, setCodeResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
   // Daily reward state
   const [dailyClaimed, setDailyClaimed] = useState(!canClaimDaily(prog));
@@ -198,6 +202,29 @@ export default function MenuScreen({ onPlay, onCreateLobby, onJoinLobby, error, 
   }, [prog]);
 
   const getShopItems = () => ALL_COSMETICS.filter(c => c.type === shopTab);
+
+  // ======== Redeem code ========
+  const redeemCode = useCallback(() => {
+    const code = codeInput.trim().toUpperCase();
+    if (!code) return;
+    const used: string[] = JSON.parse(localStorage.getItem('linkio-codes') || '[]');
+    if (used.includes(code)) {
+      setCodeResult({ ok: false, msg: 'Code already redeemed.' });
+      return;
+    }
+    const reward = REDEEM_CODES[code];
+    if (!reward) {
+      setCodeResult({ ok: false, msg: 'Invalid code.' });
+      return;
+    }
+    const updated = { ...prog, coins: prog.coins + reward.coins, totalCoinsEarned: prog.totalCoinsEarned + reward.coins };
+    saveProgression(updated);
+    setProg(updated);
+    used.push(code);
+    localStorage.setItem('linkio-codes', JSON.stringify(used));
+    setCodeResult({ ok: true, msg: `+${reward.coins.toLocaleString()} coins added!` });
+    setCodeInput('');
+  }, [codeInput, prog]);
   const isUnlocked = (id: string) => prog.unlockedCosmetics.includes(id);
   const isEquipped = (item: CosmeticItem) => {
     if (item.type === 'skin') return prog.equippedSkin === item.id;
@@ -484,7 +511,7 @@ export default function MenuScreen({ onPlay, onCreateLobby, onJoinLobby, error, 
               {/* Shop Header */}
               <div className="cosmetics-header">
                 <h2 className="cosmetics-title">
-                  {shopView === 'main' ? 'SHOP' : shopView === 'collection' ? 'COLLECTION' : shopView === 'crates' ? 'CRATES' : 'DAILY REWARDS'}
+                  {shopView === 'main' ? 'SHOP' : shopView === 'collection' ? 'COLLECTION' : shopView === 'crates' ? 'CRATES' : shopView === 'daily' ? 'DAILY REWARDS' : 'REDEEM CODE'}
                 </h2>
                 <div className="shop-header-right">
                   <div className="shop-coin-badge">
@@ -503,6 +530,7 @@ export default function MenuScreen({ onPlay, onCreateLobby, onJoinLobby, error, 
                   { id: 'crates' as ShopView, label: 'CRATES' },
                   { id: 'collection' as ShopView, label: 'COLLECTION' },
                   { id: 'daily' as ShopView, label: 'DAILY' },
+                  { id: 'redeem' as ShopView, label: 'CODES' },
                 ]).map(nav => (
                   <button
                     key={nav.id}
@@ -730,6 +758,49 @@ export default function MenuScreen({ onPlay, onCreateLobby, onJoinLobby, error, 
                       );
                     })}
                   </div>
+                </div>
+              )}
+
+              {/* ====== REDEEM CODE VIEW ====== */}
+              {shopView === 'redeem' && (
+                <div className="shop-redeem">
+                  <div className="redeem-icon">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ffd700" strokeWidth="1.5">
+                      <rect x="2" y="6" width="20" height="14" rx="2"/>
+                      <path d="M2 10h20M7 6V4a2 2 0 0 1 4 0v2M13 6V4a2 2 0 0 1 4 0v2"/>
+                    </svg>
+                  </div>
+                  <div className="redeem-title">REDEEM A CODE</div>
+                  <div className="redeem-sub">Enter a code to claim free coins and rewards</div>
+
+                  <div className="redeem-input-row">
+                    <input
+                      className="redeem-input"
+                      type="text"
+                      placeholder="ENTER CODE..."
+                      value={codeInput}
+                      onChange={e => { setCodeInput(e.target.value.toUpperCase()); setCodeResult(null); }}
+                      onKeyDown={e => e.key === 'Enter' && redeemCode()}
+                      maxLength={20}
+                      spellCheck={false}
+                      autoComplete="off"
+                    />
+                    <button
+                      className="btn btn-redeem"
+                      onClick={redeemCode}
+                      disabled={!codeInput.trim()}
+                    >
+                      REDEEM
+                    </button>
+                  </div>
+
+                  {codeResult && (
+                    <div className={`redeem-result ${codeResult.ok ? 'redeem-ok' : 'redeem-err'}`}>
+                      {codeResult.ok ? '✓ ' : '✗ '}{codeResult.msg}
+                    </div>
+                  )}
+
+                  <div className="redeem-hint">Codes can only be used once per account.</div>
                 </div>
               )}
 

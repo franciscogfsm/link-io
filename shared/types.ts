@@ -450,13 +450,18 @@ export const DAILY_REWARDS: DailyReward[] = [
 // ============================================================
 
 export const COIN_REWARDS = {
-  BASE_PER_GAME: 10,
-  PER_KILL: 8,
-  PER_100_SCORE: 3,
-  WIN_BONUS: 40,
-  STREAK_3_BONUS: 15,
-  STREAK_5_BONUS: 30,
+  BASE_PER_GAME: 4,
+  PER_KILL: 3,
+  PER_100_SCORE: 1,
+  WIN_BONUS: 18,
+  STREAK_3_BONUS: 5,
+  STREAK_5_BONUS: 10,
   FIRST_GAME_OF_DAY: 25,
+};
+
+// Redeemable codes — validated client-side (stored in localStorage)
+export const REDEEM_CODES: Record<string, { coins: number; label: string }> = {
+  'THEGOAT2026': { coins: 1000, label: '1000 Coins' },
 };
 
 // ============================================================
