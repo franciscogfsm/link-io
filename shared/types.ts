@@ -282,6 +282,15 @@ export interface PlayerProgression {
   unlockedCosmetics: string[]; // ids of unlocked cosmetics
 }
 
+// ============ LINK CONVERGENCE — multiple links to one node = more power ============
+// When multiple links from the same player connect to a single node,
+// that node becomes a convergence point with bonus power.
+// Formula: logarithmic scaling so 2 links = 1.5x, 3 = ~1.8x, 4 = 2.0x, etc.
+export function convergenceMultiplier(linkCount: number): number {
+  if (linkCount <= 1) return 1;
+  return 1 + Math.log2(linkCount) * 0.5;
+}
+
 // XP is HARD to earn — scaling per level
 export const XP_PER_LEVEL = 800;  // base XP per level
 export const XP_LEVEL_SCALING = 1.15;  // each level requires 15% more

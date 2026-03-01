@@ -4,6 +4,7 @@
 // ============================================================
 
 import type { GameNode, GameLink, Player } from '../../../shared/types.js';
+import { convergenceMultiplier } from '../../../shared/types.js';
 
 let _nextLinkId = 1;
 
@@ -135,12 +136,23 @@ export class NetworkManager {
       const networkMultiplier = 1 + (effectiveNodes - 1) * this.networkBonusMultiplier;
       const flowBonus = 1 + [0, 0.08, 0.15, 0.25][player.upgrades.flow];
 
+      // Build per-node link convergence count for this player
+      const nodeConvergence = new Map<string, number>();
+      for (const l of links) {
+        if (l.owner !== player.id) continue;
+        nodeConvergence.set(l.fromNodeId, (nodeConvergence.get(l.fromNodeId) || 0) + 1);
+        nodeConvergence.set(l.toNodeId, (nodeConvergence.get(l.toNodeId) || 0) + 1);
+      }
+
       // Second pass: generate energy per owned node
+      // CONVERGENCE: nodes with more links generate more energy
       for (const node of nodes) {
         if (node.owner !== player.id) continue;
         if (node.isCore) continue;
         const nodeMultiplier = node.isMegaNode ? 5 : node.isPowerNode ? 3 : 1;
-        const generation = (this.baseEnergyPerNode * networkMultiplier * nodeMultiplier) * flowBonus * deltaTime;
+        const linksOnNode = nodeConvergence.get(node.id) || 0;
+        const converge = convergenceMultiplier(linksOnNode);
+        const generation = (this.baseEnergyPerNode * networkMultiplier * nodeMultiplier * converge) * flowBonus * deltaTime;
         player.energy += generation;
         node.energy = Math.min(node.energy + generation * 0.5, 100);
       }
@@ -160,6 +172,18 @@ export class NetworkManager {
     }
 
     // NODE CAPTURE: links connecting to enemy nodes gradually steal them
+    // CONVERGENCE: multiple attack links on the same node = faster capture
+    // Pre-count attack links per (attacker, targetNode) pair
+    const attackLinksPerNode = new Map<string, number>(); // key: "attackerId:nodeId"
+    for (const link of links) {
+      const toNode = nodeMap.get(link.toNodeId);
+      if (!toNode || toNode.isCore) continue;
+      if (toNode.owner !== null && toNode.owner !== link.owner && !link.shielded && !invulnerable.has(toNode.owner)) {
+        const key = `${link.owner}:${toNode.id}`;
+        attackLinksPerNode.set(key, (attackLinksPerNode.get(key) || 0) + 1);
+      }
+    }
+
     for (const link of links) {
       const toNode = nodeMap.get(link.toNodeId);
       if (!toNode || toNode.isCore) continue;
@@ -167,8 +191,12 @@ export class NetworkManager {
       // If this link reaches an enemy node, start capture
       // Skip if node owner is invulnerable (spawn protection)
       if (toNode.owner !== null && toNode.owner !== link.owner && !link.shielded && !invulnerable.has(toNode.owner)) {
+        // Convergence: more attack links = faster capture
+        const attackKey = `${link.owner}:${toNode.id}`;
+        const attackLinkCount = attackLinksPerNode.get(attackKey) || 1;
+        const converge = convergenceMultiplier(attackLinkCount);
         // Reduce node "loyalty" (stored in energy) then flip ownership
-        toNode.energy -= this.captureSpeed * deltaTime;
+        toNode.energy -= this.captureSpeed * converge * deltaTime;
         if (toNode.energy <= 0) {
           const previousOwner = toNode.owner;
           toNode.owner = link.owner;

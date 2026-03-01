@@ -11,6 +11,7 @@ import type {
   ClientToServerEvents, ServerToClientEvents,
   KillFeedEntry, AbilityType, GameMode, MapEvent, UpgradeType
 } from '../../../shared/types.js';
+import { convergenceMultiplier } from '../../../shared/types.js';
 
 // Inlined from shared/types to avoid Render deploy ESM resolution issues
 const UPGRADE_MAX_TIER = 3;
@@ -1312,6 +1313,21 @@ export class GameRoom {
     // Track which cores are being attacked (for health regen check later)
     const attackedCores = new Set<string>();
 
+    // CONVERGENCE: pre-count how many links each attacker has touching each enemy core
+    const coreAttackCounts = new Map<string, number>(); // key: "attackerId:coreNodeId"
+    for (const link of this.state.links) {
+      const toNode = nodeMap.get(link.toNodeId);
+      const fromNode = nodeMap.get(link.fromNodeId);
+      if (!toNode || !fromNode) continue;
+      if (toNode.isCore && toNode.owner && toNode.owner !== link.owner) {
+        const key = `${link.owner}:${toNode.id}`;
+        coreAttackCounts.set(key, (coreAttackCounts.get(key) || 0) + 1);
+      } else if (fromNode.isCore && fromNode.owner && fromNode.owner !== link.owner) {
+        const key = `${link.owner}:${fromNode.id}`;
+        coreAttackCounts.set(key, (coreAttackCounts.get(key) || 0) + 1);
+      }
+    }
+
     // Links touching an enemy's core node deal damage to that player's health
     for (const link of this.state.links) {
       const toNode = nodeMap.get(link.toNodeId);
@@ -1340,9 +1356,13 @@ export class GameRoom {
         // Network power scaling: attacker's damage scales with their network
         const attackerPowerTier = [0, 0.25, 0.50, 0.80][attacker.upgrades.power];
         const networkMultiplier = 1 + (attacker.nodeCount - 1) * 0.08 + attackerPowerTier;
+        // CONVERGENCE: more links from this attacker touching this core = more damage
+        const coreAttackKey = `${link.owner}:${targetCore.id}`;
+        const linksOnCore = coreAttackCounts.get(coreAttackKey) || 1;
+        const converge = convergenceMultiplier(linksOnCore);
         // Defender's fortify upgrade reduces damage
         const fortifyReduction = 1 - [0, 0.20, 0.35, 0.50][coreOwner.upgrades.fortify];
-        const damage = CORE_DAMAGE_PER_SECOND * deltaTime * networkMultiplier * fortifyReduction;
+        const damage = CORE_DAMAGE_PER_SECOND * deltaTime * networkMultiplier * converge * fortifyReduction;
         coreOwner.health -= damage;
         coreOwner.lastDamagedBy = attacker.id;
 

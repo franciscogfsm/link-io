@@ -203,10 +203,17 @@ export class GameRenderer {
       }
     }
 
+    // Build per-node link convergence count for visual indicators
+    const nodeConvergence = new Map<string, number>();
+    for (const link of state.links) {
+      nodeConvergence.set(link.fromNodeId, (nodeConvergence.get(link.fromNodeId) || 0) + 1);
+      nodeConvergence.set(link.toNodeId, (nodeConvergence.get(link.toNodeId) || 0) + 1);
+    }
+
     // Draw nodes
     for (const node of state.nodes) {
       const isValidTarget = validTargets.includes(node.id);
-      this.drawNode(ctx, node, state.players, node.id === hoveredNodeId, playerId, dragState.active, isValidTarget);
+      this.drawNode(ctx, node, state.players, node.id === hoveredNodeId, playerId, dragState.active, isValidTarget, nodeConvergence.get(node.id) || 0);
     }
 
     // Floating texts
@@ -528,7 +535,8 @@ export class GameRenderer {
 
   private drawNode(
     ctx: CanvasRenderingContext2D, node: GameNode, players: Player[],
-    isHovered: boolean, playerId: string, isDragging: boolean, isValidTarget: boolean
+    isHovered: boolean, playerId: string, isDragging: boolean, isValidTarget: boolean,
+    convergenceLinks: number = 0
   ): void {
     const { x, y } = node.position;
     const player = node.owner ? players.find((p) => p.id === node.owner) : null;
@@ -652,6 +660,46 @@ export class GameRenderer {
     ctx.beginPath();
     ctx.arc(x, y, glowSize, 0, Math.PI * 2);
     ctx.fill();
+
+    // CONVERGENCE VISUAL — nodes with 2+ links get power rings
+    if (node.owner && convergenceLinks >= 2) {
+      const cLevel = Math.min(convergenceLinks, 6); // cap visual at 6
+      const cPulse = 0.5 + 0.5 * Math.sin(this.time * (2 + cLevel * 0.5));
+      const ringRadius = node.radius + 6 + cLevel * 2;
+      const ringAlpha = 0.15 + cLevel * 0.08;
+
+      // Rotating convergence arcs — one per converging link
+      for (let i = 0; i < cLevel; i++) {
+        const arcAngle = (i / cLevel) * Math.PI * 2 + this.time * (1 + cLevel * 0.3);
+        const arcLen = (Math.PI * 2) / (cLevel + 2);
+        ctx.strokeStyle = colors.main;
+        ctx.lineWidth = 1.5 + cLevel * 0.3;
+        ctx.globalAlpha = ringAlpha * cPulse;
+        ctx.beginPath();
+        ctx.arc(x, y, ringRadius, arcAngle, arcAngle + arcLen);
+        ctx.stroke();
+      }
+
+      // Inner power glow intensifies with convergence
+      const powerGlow = ctx.createRadialGradient(x, y, 0, x, y, node.radius + 4);
+      powerGlow.addColorStop(0, colors.main.replace(')', `, ${0.1 * cLevel * cPulse})`).replace('rgb(', 'rgba('));
+      powerGlow.addColorStop(1, 'transparent');
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = powerGlow;
+      ctx.beginPath();
+      ctx.arc(x, y, node.radius + 4, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Convergence count label for 3+ links
+      if (convergenceLinks >= 3) {
+        ctx.font = 'bold 9px sans-serif';
+        ctx.fillStyle = colors.main;
+        ctx.globalAlpha = 0.7 + 0.3 * cPulse;
+        ctx.textAlign = 'center';
+        ctx.fillText(`×${convergenceLinks}`, x, y + node.radius + 14);
+      }
+      ctx.globalAlpha = 1;
+    }
 
     // Node body — with skin support
     const cosmetics = node.owner ? this.playerCosmetics.get(node.owner) : null;
