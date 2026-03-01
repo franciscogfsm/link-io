@@ -11,8 +11,23 @@ import type {
   ClientToServerEvents, ServerToClientEvents,
   KillFeedEntry, AbilityType, GameMode, MapEvent, UpgradeType
 } from '../../../shared/types.js';
-import { UPGRADE_COSTS, UPGRADE_MAX_TIER } from '../../../shared/types.js';
 
+// Inlined from shared/types to avoid Render deploy ESM resolution issues
+const UPGRADE_MAX_TIER = 3;
+const UPGRADE_COSTS: Record<UpgradeType, number[]> = {
+  fortify:    [50,  100, 180],
+  regen:      [40,  90,  160],
+  thornAura:  [70,  130, 220],
+  power:      [60,  120, 200],
+  siphon:     [50,  100, 170],
+  corrosion:  [80,  150, 250],
+  flow:       [40,  80,  150],
+  efficiency: [35,  75,  140],
+  magnet:     [60,  110, 190],
+  reach:      [45,  90,  160],
+  toughLinks: [50,  100, 170],
+  speed:      [55,  105, 180],
+};
 const DEFAULT_UPGRADES: PlayerUpgrades = {
   fortify: 0, regen: 0, thornAura: 0,
   power: 0, siphon: 0, corrosion: 0,
