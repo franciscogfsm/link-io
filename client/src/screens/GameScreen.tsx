@@ -9,6 +9,7 @@ import type {
   GameState, ServerToClientEvents, ClientToServerEvents,
   Player, GameLink, KillFeedEntry, AbilityType, UpgradeType, PlayerProgression
 } from '../../../shared/types';
+import { getPetBonus } from '../../../shared/types';
 import { GameRenderer } from '../game/GameRenderer';
 import type { PlayerCosmetics } from '../game/GameRenderer';
 import { setInvulnerablePlayers, setDeadPlayers } from '../game/GameRenderer';
@@ -191,6 +192,15 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
       interp.pushState(state);
       input.setNodes(state.nodes);
       input.setLinks(state.links.map((l) => ({ fromNodeId: l.fromNodeId, toNodeId: l.toNodeId })));
+      // Keep reach ring + valid-target distance in sync with player's actual upgrade level
+      const me = state.players.find((p) => p.id === playerId);
+      if (me) {
+        const baseReach = 1 + ([0, 0.15, 0.30, 0.50][me.upgrades.reach] ?? 0);
+        const petMult = 1 + (getPetBonus(me.equippedPet).reach || 0);
+        const rm = baseReach * petMult;
+        input.setReachMultiplier(rm);
+        renderer.setReachMultiplier(rm);
+      }
       if (state.gamePhase === 'playing') setIsWaiting(false);
       if (state.killFeed) setKillFeed(state.killFeed);
     });
@@ -201,6 +211,14 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
       interp.pushState(state);
       input.setNodes(state.nodes);
       input.setLinks(state.links.map((l) => ({ fromNodeId: l.fromNodeId, toNodeId: l.toNodeId })));
+      const me = state.players.find((p) => p.id === playerId);
+      if (me) {
+        const baseReach = 1 + ([0, 0.15, 0.30, 0.50][me.upgrades.reach] ?? 0);
+        const petMult = 1 + (getPetBonus(me.equippedPet).reach || 0);
+        const rm = baseReach * petMult;
+        input.setReachMultiplier(rm);
+        renderer.setReachMultiplier(rm);
+      }
       setIsWaiting(false);
       audioManager.init();
       audioManager.playGameStart();

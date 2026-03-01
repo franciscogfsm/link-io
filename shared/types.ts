@@ -484,22 +484,27 @@ export interface PetBonus {
 export const PET_BONUSES: Record<string, PetBonus> = {
   pet_none:          {},
   // Level-unlocked pets
-  pet_orb:           { energy: 0.04 },                                 // +4% energy gen
-  pet_cube:          { linkHp: 0.06 },                                 // +6% link HP
-  pet_drone:         { speed: 0.05 },                                  // +5% speed
-  pet_skull:         { damage: 0.07 },                                 // +7% damage
-  pet_star:          { energy: 0.06, regen: 0.04 },                    // +6% energy, +4% regen
-  pet_dragon:        { damage: 0.08, speed: 0.04 },                    // +8% dmg, +4% speed
-  pet_eye:           { reach: 0.12, cooldown: 0.03 },                  // +12% reach, -3% CDs
-  pet_blackhole:     { magnet: 0.15, energy: 0.06 },                   // +15% magnet, +6% energy
-  pet_crown:         { damage: 0.08, defense: 0.06, energy: 0.04 },    // +8% dmg, +6% def, +4% energy
+  pet_orb:           { energy: 0.28, regen: 0.10 },                              // +28% energy gen, +10% regen
+  pet_cube:          { linkHp: 0.45, defense: 0.12 },                            // +45% link HP, +12% defense
+  pet_drone:         { speed: 0.32, cooldown: 0.10 },                            // +32% speed, -10% CDs
+  pet_skull:         { damage: 0.40, siphon: 0.10 },                             // +40% damage, +10% siphon
+  pet_star:          { energy: 0.30, regen: 0.25, cooldown: 0.08 },              // +30% energy, +25% regen, -8% CDs
+  pet_dragon:        { damage: 0.45, speed: 0.22, reach: 0.12 },                 // +45% dmg, +22% speed, +12% reach
+  pet_eye:           { reach: 0.60, cooldown: 0.25, speed: 0.10 },               // +60% reach, -25% CDs, +10% speed
+  pet_blackhole:     { magnet: 0.80, energy: 0.30, reach: 0.15 },                // +80% magnet, +30% energy
+  pet_crown:         { damage: 0.35, defense: 0.30, energy: 0.25, regen: 0.12 }, // ROYALTY: all-round king
   // Box-exclusive pets
-  pet_ghost:         { cooldown: 0.08, speed: 0.03 },                  // -8% CDs, +3% speed
-  pet_butterfly:     { speed: 0.07, energy: 0.05 },                    // +7% speed, +5% energy
-  pet_serpent:       { siphon: 0.12, damage: 0.05 },                   // +12% siphon, +5% dmg
-  pet_phoenix_bird:  { regen: 0.10, defense: 0.06, damage: 0.04 },     // +10% regen, +6% def, +4% dmg
-  pet_void_entity:   { damage: 0.10, speed: 0.07, cooldown: 0.06, energy: 0.05 }, // MYTHIC: all stats
+  pet_ghost:         { cooldown: 0.45, speed: 0.28, energy: 0.15 },              // -45% CDs, +28% speed
+  pet_butterfly:     { speed: 0.38, energy: 0.28, regen: 0.15 },                 // +38% speed, +28% energy
+  pet_serpent:       { siphon: 0.60, damage: 0.28, energy: 0.12 },               // +60% siphon, +28% dmg
+  pet_phoenix_bird:  { regen: 0.55, defense: 0.38, damage: 0.22, linkHp: 0.20 }, // +55% regen, +38% def, +22% dmg
+  pet_void_entity:   { damage: 0.50, speed: 0.38, cooldown: 0.40, energy: 0.38, reach: 0.30, regen: 0.25, siphon: 0.20, defense: 0.25 }, // MYTHIC: ALL stats maxed
 };
+
+// Helper to get pet bonus object (returns empty object if no pet)
+export function getPetBonus(petId: string | undefined | null): PetBonus {
+  return PET_BONUSES[petId ?? ''] ?? {};
+}
 
 // Helper to format pet bonus as readable strings
 export function getPetBonusLabels(petId: string): string[] {

@@ -691,7 +691,7 @@ export class GameRoom {
 
       // Apply reach upgrade to link distance (+ pet reach bonus)
       const petReach = 1 + (getPetBonus(player.equippedPet).reach || 0);
-      const reachBonus = (1 + [0, 0.15, 0.30, 0.50][player.upgrades.reach]) * petReach;
+      const reachBonus = (1 + ([0, 0.15, 0.30, 0.50][player.upgrades.reach] ?? 0)) * petReach;
 
       const link = this.network.createLink(
         data.fromNodeId, data.toNodeId, player.id,
@@ -1142,7 +1142,7 @@ export class GameRoom {
                 const link = this.network.createLink(
                   owned.id, node.id, player.id,
                   this.state.nodes, this.state.links, player,
-                  1 + [0, 0.15, 0.30, 0.50][player.upgrades.reach]
+                  1 + ([0, 0.15, 0.30, 0.50][player.upgrades.reach] ?? 0)
                 );
                 if (link) {
                   this.state.links.push(link);

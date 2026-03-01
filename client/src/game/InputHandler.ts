@@ -26,6 +26,7 @@ export class InputHandler {
   private playerId: string = '';
   private hoverNodeId: string | null = null;
   private _validTargets: string[] = [];
+  private _reachMultiplier = 1.0;
   private clickRadius = 45; // larger for easier clicking!
   private _warpMode = false;
   private _warpCallback: ((nodeId: string) => void) | null = null;
@@ -69,6 +70,10 @@ export class InputHandler {
     this.onClickNode = callback;
   }
 
+  setReachMultiplier(m: number) {
+    this._reachMultiplier = m;
+  }
+
   setWarpMode(active: boolean, callback: ((nodeId: string) => void) | null) {
     this._warpMode = active;
     this._warpCallback = callback;
@@ -97,7 +102,7 @@ export class InputHandler {
         const dx = n.position.x - fromNode.position.x;
         const dy = n.position.y - fromNode.position.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist > MAX_LINK_DISTANCE) return false;
+        if (dist > MAX_LINK_DISTANCE * this._reachMultiplier) return false;
         // No duplicate links
         const exists = this.links.some(
           l =>
@@ -159,7 +164,7 @@ export class InputHandler {
       const world = this.camera.screenToWorld(e.clientX, e.clientY);
       const targetNode = this.findNodeAt(world.x, world.y);
 
-      if (targetNode && this._dragState.fromNodeId && targetNode.id !== this._dragState.fromNodeId) {
+      if (targetNode && this._dragState.fromNodeId && targetNode.id !== this._dragState.fromNodeId && this._validTargets.includes(targetNode.id)) {
         console.log('[LINK.IO Input] Creating link:', this._dragState.fromNodeId, '->', targetNode.id);
         this.onCreateLink?.(this._dragState.fromNodeId, targetNode.id);
       } else {
@@ -202,7 +207,7 @@ export class InputHandler {
       const world = this.camera.screenToWorld(touch.clientX, touch.clientY);
       const targetNode = this.findNodeAt(world.x, world.y);
 
-      if (targetNode && this._dragState.fromNodeId && targetNode.id !== this._dragState.fromNodeId) {
+      if (targetNode && this._dragState.fromNodeId && targetNode.id !== this._dragState.fromNodeId && this._validTargets.includes(targetNode.id)) {
         this.onCreateLink?.(this._dragState.fromNodeId, targetNode.id);
       }
 

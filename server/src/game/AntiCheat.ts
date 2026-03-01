@@ -7,7 +7,7 @@ import type { GameNode, GameLink, Player } from '../../../shared/types.js';
 export class AntiCheat {
   private actionCooldowns = new Map<string, number>();
   private minActionInterval = 50; // ms — snappy linking
-  private maxLinkDistance = 400; // slightly more than game allows for latency
+  private maxLinkDistance = 900; // covers max reach upgrade + eye pet (350 * 1.5 * 1.60 ≈ 840) + latency buffer
 
   validateLinkCreation(
     playerId: string,

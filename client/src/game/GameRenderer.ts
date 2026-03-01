@@ -57,6 +57,7 @@ export class GameRenderer {
   private lastCanvasH = 0;
   private playerCosmetics: Map<string, PlayerCosmetics> = new Map();
   private trailPositions: Map<string, Vec2[]> = new Map();
+  private _reachMultiplier = 1.0;
 
   setPlayerCosmetics(playerId: string, cosmetics: PlayerCosmetics): void {
     this.playerCosmetics.set(playerId, cosmetics);
@@ -86,6 +87,10 @@ export class GameRenderer {
     this.shakeIntensity = intensity;
     this.shakeDuration = duration;
     this.shakeTimer = 0;
+  }
+
+  setReachMultiplier(m: number): void {
+    this._reachMultiplier = m;
   }
 
   addFloatingText(text: string, x: number, y: number, color: string, size = 16): void {
@@ -437,7 +442,7 @@ export class GameRenderer {
     ctx.globalAlpha = pulse;
     ctx.setLineDash([8, 12]);
     ctx.beginPath();
-    ctx.arc(fromNode.position.x, fromNode.position.y, MAX_LINK_DISTANCE, 0, Math.PI * 2);
+    ctx.arc(fromNode.position.x, fromNode.position.y, MAX_LINK_DISTANCE * this._reachMultiplier, 0, Math.PI * 2);
     ctx.stroke();
     ctx.setLineDash([]);
     ctx.restore();
