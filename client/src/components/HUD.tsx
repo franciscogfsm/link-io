@@ -113,6 +113,7 @@ export default function HUD({ player, state, roomCode, onUseAbility, onUpgrade, 
   ];
 
   return (
+    <>
     <div className="hud-left">
       <div className="hud-card">
         <div className={`hud-timer ${isWarning ? 'warning' : ''}`}>
@@ -226,88 +227,20 @@ export default function HUD({ player, state, roomCode, onUseAbility, onUpgrade, 
               <span className="hud-combo-text">COMBO x{player.combo}</span>
             </div>
           )}
+        </>
+      )}
 
-          {/* Ability buttons */}
-          <div className="hud-abilities">
-            {abilities.map((ab) => {
-              const cd = player.abilityCooldowns[ab.type];
-              const canUse = cd <= 0 && energy >= ab.cost;
-              const maxCd = ab.type === 'surge' ? 12 : ab.type === 'shield' ? 15 : ab.type === 'emp' ? 20 : 10;
-              const cdPercent = cd > 0 ? (cd / maxCd) * 100 : 0;
-              const isWarpActive = ab.type === 'warp' && warpMode;
+      {roomCode && (
+        <div className="hud-card hud-room-code">
+          ROOM: {roomCode}
+        </div>
+      )}
+    </div>
 
-              return (
-                <button
-                  key={ab.type}
-                  className={`ability-btn ${canUse ? 'ready' : 'cooldown'} ${isWarpActive ? 'warp-active' : ''}`}
-                  onClick={() => {
-                    if (ab.type === 'warp' && canUse) {
-                      onToggleWarp?.();
-                    } else if (canUse) {
-                      onUseAbility(ab.type);
-                    }
-                  }}
-                  disabled={!canUse && !isWarpActive}
-                  title={`${ab.label}: ${ab.desc}`}
-                  id={`ability-${ab.type}`}
-                  style={{
-                    '--ability-color': ab.color,
-                  } as React.CSSProperties}
-                >
-                  <div className="ability-icon">{ab.icon}</div>
-                  <div className="ability-label">{ab.label}</div>
-                  <div className="ability-key">{ab.key}</div>
-                  <div className="ability-desc">{ab.desc}</div>
-                  {cd > 0 && (
-                    <>
-                      <div className="ability-cd-overlay" style={{ height: `${cdPercent}%` }} />
-                      <div className="ability-cd-text">{Math.ceil(cd)}s</div>
-                    </>
-                  )}
-                  {canUse && <div className="ability-cost">{ab.cost}⚡</div>}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Warp mode indicator */}
-          {warpMode && (
-            <div className="warp-mode-hint">
-              🌀 CLICK AN OWNED NODE TO WARP — Press SPACE again to cancel
-            </div>
-          )}
-
-          {/* Click streak indicator */}
-          {player.clickStreak >= 3 && (
-            <div className="hud-click-streak" style={{
-              background: player.clickStreak >= 20 ? 'rgba(255, 190, 11, 0.25)' :
-                           player.clickStreak >= 10 ? 'rgba(57, 255, 20, 0.2)' :
-                           'rgba(0, 240, 255, 0.15)',
-              border: `1px solid ${player.clickStreak >= 20 ? '#ffbe0b' : player.clickStreak >= 10 ? '#39ff14' : '#00f0ff'}`,
-              borderRadius: 6,
-              padding: '4px 10px',
-              marginTop: 4,
-              textAlign: 'center',
-              fontSize: 11,
-              fontFamily: 'Orbitron, monospace',
-              color: player.clickStreak >= 20 ? '#ffbe0b' : player.clickStreak >= 10 ? '#39ff14' : '#00f0ff',
-              textShadow: `0 0 6px currentColor`,
-            }}>
-              ⚡ CLICK x{player.clickStreak} {player.clickStreak >= 20 ? '💥 MADNESS' : player.clickStreak >= 10 ? '🔥 FRENZY' : ''}
-            </div>
-          )}
-
-          {/* Upgrade Shop Toggle */}
-          <button
-            className={`upgrade-toggle-btn ${showUpgrades ? 'active' : ''}`}
-            onClick={() => setShowUpgrades(!showUpgrades)}
-          >
-            <span className="upgrade-toggle-icon">⬆</span>
-            <span>UPGRADES</span>
-            {showUpgrades ? <span className="upgrade-toggle-arrow">▼</span> : <span className="upgrade-toggle-arrow">▶</span>}
-          </button>
-
-          {/* Upgrade Shop — Tabbed Design */}
+    {/* Bottom-left anchored: abilities + upgrades — never shifts */}
+    {player && (
+      <div className="hud-bottom-left">
+          {/* Upgrade Shop — Tabbed Design (opens above toggle) */}
           {showUpgrades && (
             <div className="upgrade-shop">
               {/* Category Tabs */}
@@ -382,14 +315,89 @@ export default function HUD({ player, state, roomCode, onUseAbility, onUpgrade, 
               </div>
             </div>
           )}
-        </>
-      )}
 
-      {roomCode && (
-        <div className="hud-card hud-room-code">
-          ROOM: {roomCode}
-        </div>
-      )}
-    </div>
+          {/* Upgrade Shop Toggle */}
+          <button
+            className={`upgrade-toggle-btn ${showUpgrades ? 'active' : ''}`}
+            onClick={() => setShowUpgrades(!showUpgrades)}
+          >
+            <span className="upgrade-toggle-icon">⬆</span>
+            <span>UPGRADES</span>
+            {showUpgrades ? <span className="upgrade-toggle-arrow">▼</span> : <span className="upgrade-toggle-arrow">▶</span>}
+          </button>
+
+          {/* Ability buttons */}
+          <div className="hud-abilities">
+            {abilities.map((ab) => {
+              const cd = player.abilityCooldowns[ab.type];
+              const canUse = cd <= 0 && energy >= ab.cost;
+              const maxCd = ab.type === 'surge' ? 12 : ab.type === 'shield' ? 15 : ab.type === 'emp' ? 20 : 10;
+              const cdPercent = cd > 0 ? (cd / maxCd) * 100 : 0;
+              const isWarpActive = ab.type === 'warp' && warpMode;
+
+              return (
+                <button
+                  key={ab.type}
+                  className={`ability-btn ${canUse ? 'ready' : 'cooldown'} ${isWarpActive ? 'warp-active' : ''}`}
+                  onClick={() => {
+                    if (ab.type === 'warp' && canUse) {
+                      onToggleWarp?.();
+                    } else if (canUse) {
+                      onUseAbility(ab.type);
+                    }
+                  }}
+                  disabled={!canUse && !isWarpActive}
+                  title={`${ab.label}: ${ab.desc}`}
+                  id={`ability-${ab.type}`}
+                  style={{
+                    '--ability-color': ab.color,
+                  } as React.CSSProperties}
+                >
+                  <div className="ability-icon">{ab.icon}</div>
+                  <div className="ability-label">{ab.label}</div>
+                  <div className="ability-key">{ab.key}</div>
+                  <div className="ability-desc">{ab.desc}</div>
+                  {cd > 0 && (
+                    <>
+                      <div className="ability-cd-overlay" style={{ height: `${cdPercent}%` }} />
+                      <div className="ability-cd-text">{Math.ceil(cd)}s</div>
+                    </>
+                  )}
+                  {canUse && <div className="ability-cost">{ab.cost}⚡</div>}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Warp mode indicator */}
+          {warpMode && (
+            <div className="warp-mode-hint">
+              🌀 CLICK AN OWNED NODE TO WARP — Press SPACE again to cancel
+            </div>
+          )}
+
+          {/* Click streak indicator */}
+          {player.clickStreak >= 3 && (
+            <div className="hud-click-streak" style={{
+              background: player.clickStreak >= 20 ? 'rgba(255, 190, 11, 0.25)' :
+                           player.clickStreak >= 10 ? 'rgba(57, 255, 20, 0.2)' :
+                           'rgba(0, 240, 255, 0.15)',
+              border: `1px solid ${player.clickStreak >= 20 ? '#ffbe0b' : player.clickStreak >= 10 ? '#39ff14' : '#00f0ff'}`,
+              borderRadius: 6,
+              padding: '4px 10px',
+              marginTop: 4,
+              textAlign: 'center',
+              fontSize: 11,
+              fontFamily: 'Orbitron, monospace',
+              color: player.clickStreak >= 20 ? '#ffbe0b' : player.clickStreak >= 10 ? '#39ff14' : '#00f0ff',
+              textShadow: `0 0 6px currentColor`,
+            }}>
+              ⚡ CLICK x{player.clickStreak} {player.clickStreak >= 20 ? '💥 MADNESS' : player.clickStreak >= 10 ? '🔥 FRENZY' : ''}
+            </div>
+          )}
+      </div>
+    )}
+
+    </>
   );
 }
