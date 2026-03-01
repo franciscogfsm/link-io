@@ -381,16 +381,16 @@ export class GameRoom {
       killer.killCount++;
 
       // Score: base + streak bonus + bounty on high-streak victim
-      let eliminationScore = 200;
-      eliminationScore += killer.killStreak * 25; // streak bonus
+      let eliminationScore = 500;
+      eliminationScore += killer.killStreak * 50; // streak bonus
       if (victim.killStreak >= 3) {
         // Bounty for ending someone's streak!
-        const bounty = STREAK_BOUNTY_BASE + victim.killStreak * 30;
+        const bounty = STREAK_BOUNTY_BASE + victim.killStreak * 50;
         eliminationScore += bounty;
         killer.energy += bounty * 0.5; // bonus energy for bounty
       }
       if (isRevenge) {
-        eliminationScore += 100; // revenge bonus
+        eliminationScore += 250; // revenge bonus
       }
       killer.score += eliminationScore;
       killer.energy += 5; // energy reward for kill (nerfed from 8)
