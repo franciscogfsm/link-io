@@ -3,8 +3,9 @@
 // Handles energy networks, links, flow, and combat
 // ============================================================
 
-import { v4 as uuidv4 } from 'uuid';
 import type { GameNode, GameLink, Player } from '../../../shared/types.js';
+
+let _nextLinkId = 1;
 
 export class NetworkManager {
   private linkCostBase = 6;           // reduced from 10 — links easier to afford
@@ -70,7 +71,7 @@ export class NetworkManager {
     }
 
     const link: GameLink = {
-      id: uuidv4(),
+      id: `l${_nextLinkId++}`,
       fromNodeId,
       toNodeId,
       owner: playerId,
@@ -104,12 +105,8 @@ export class NetworkManager {
 
       let nodeCount = 0;
       let linkCount = 0;
-      let hasMega = false;
-      let hasPower = false;
 
-      // Count nodes and generate energy in one pass
-      const networkMultiplierBase = this.networkBonusMultiplier;
-      // First pass: count nodes
+      // First pass: count nodes & links
       for (const n of nodes) {
         if (n.owner === player.id) nodeCount++;
       }
@@ -117,8 +114,17 @@ export class NetworkManager {
         if (l.owner === player.id) linkCount++;
       }
 
-      const networkMultiplier = 1 + (nodeCount - 1) * networkMultiplierBase;
-      const territoryBonus = nodeCount >= 15 ? 0.3 : nodeCount >= 8 ? 0.1 : 0;
+      // DIMINISHING RETURNS on network size:
+      // First 5 nodes: full value (1.0x each)
+      // Nodes 6-12: 60% value each
+      // Nodes 13-20: 35% value each
+      // Nodes 21+: 15% value each
+      const effectiveNodes = Math.min(nodeCount, 5)
+        + Math.max(0, Math.min(nodeCount, 12) - 5) * 0.6
+        + Math.max(0, Math.min(nodeCount, 20) - 12) * 0.35
+        + Math.max(0, nodeCount - 20) * 0.15;
+
+      const networkMultiplier = 1 + (effectiveNodes - 1) * this.networkBonusMultiplier;
       const flowBonus = 1 + [0, 0.08, 0.15, 0.25][player.upgrades.flow];
 
       // Second pass: generate energy per owned node
@@ -126,18 +132,22 @@ export class NetworkManager {
         if (node.owner !== player.id) continue;
         if (node.isCore) continue;
         const nodeMultiplier = node.isMegaNode ? 5 : node.isPowerNode ? 3 : 1;
-        const generation = (this.baseEnergyPerNode * networkMultiplier * nodeMultiplier + territoryBonus) * flowBonus * deltaTime;
+        const generation = (this.baseEnergyPerNode * networkMultiplier * nodeMultiplier) * flowBonus * deltaTime;
         player.energy += generation;
         node.energy = Math.min(node.energy + generation * 0.5, 100);
       }
 
-      // Core passive gen (buffed from 0.2)
-      if (nodeCount > 0) {
-        player.energy += 0.4 * deltaTime;
-      }
+      // Core passive gen — ALWAYS active (even with just core)
+      player.energy += 1.5 * deltaTime;
 
       player.nodeCount = nodeCount;
       player.linkCount = linkCount;
+
+      // SOFT CAP: above 500 energy, drain excess slowly (big networks can't hoard)
+      if (player.energy > 500) {
+        const excess = player.energy - 500;
+        player.energy -= excess * 0.05 * deltaTime; // lose 5%/s of excess
+      }
       player.energy = Math.min(player.energy, 999);
     }
 

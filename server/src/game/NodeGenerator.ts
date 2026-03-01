@@ -4,8 +4,9 @@
 // Spawn logic guarantees players start near reachable nodes
 // ============================================================
 
-import { v4 as uuidv4 } from 'uuid';
 import type { GameNode, Vec2 } from '../../../shared/types.js';
+
+let _nextNodeId = 1;
 
 export class NodeGenerator {
   arenaWidth: number;
@@ -59,7 +60,7 @@ export class NodeGenerator {
     isGoldNode = false
   ): GameNode {
     return {
-      id: uuidv4(),
+      id: `n${_nextNodeId++}`,
       position: { ...position },
       velocity: {
         x: (Math.random() - 0.5) * 0.3,

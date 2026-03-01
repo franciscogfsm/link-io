@@ -41,14 +41,14 @@ import { AntiCheat } from './AntiCheat.js';
 
 const ARENA_BASE_WIDTH = 3500;
 const ARENA_BASE_HEIGHT = 2500;
-const ARENA_PER_PLAYER_WIDTH = 600;  // extra width per player beyond 2
-const ARENA_PER_PLAYER_HEIGHT = 400;
-const NODES_PER_PLAYER = 15;         // extra neutral nodes spawned per player
+const ARENA_PER_PLAYER_WIDTH = 500;  // extra width per player beyond 2
+const ARENA_PER_PLAYER_HEIGHT = 350;
+const NODES_PER_PLAYER = 12;         // extra neutral nodes spawned per player
 const TICK_RATE = 20; // lower tick rate for better server performance
 const TICK_INTERVAL = 1000 / TICK_RATE;
 const GAME_DURATION = 180;
 const INITIAL_ENERGY = 80; // buffed from 50 so players can immediately create links
-const MAX_PLAYERS = 8;
+const MAX_PLAYERS = 20;
 const MIN_PLAYERS_TO_START = 2;
 const NEUTRAL_NODE_COUNT = 80;
 const COMBO_WINDOW = 3;
@@ -66,7 +66,7 @@ const GOLD_NODE_LIFETIME = 6;        // seconds before gold node despawns
 // Respawn system
 const RESPAWN_TIME = 5; // seconds to respawn
 const RESPAWN_INVULN_TIME = 3; // seconds of invulnerability after respawn
-const RESPAWN_ENERGY = 60; // buffed from 30
+const RESPAWN_ENERGY = 100; // generous respawn energy for comeback
 
 // Health system
 const PLAYER_MAX_HEALTH = 100;
@@ -152,6 +152,10 @@ export class GameRoom {
   private nodeMap = new Map<string, GameNode>();
   private playerMap = new Map<string, Player>();
   private tickCount = 0;
+  private nodesByOwner = new Map<string, GameNode[]>();
+  private linksByOwner = new Map<string, GameLink[]>();
+  private linkMap = new Map<string, GameLink>();
+  private _stateTickCounter = 0;
 
   constructor(io: Server<ClientToServerEvents, ServerToClientEvents>, code: string, gameMode: GameMode = 'ffa') {
     this.id = uuidv4();
@@ -260,7 +264,13 @@ export class GameRoom {
     // Scale arena for player count
     this.scaleArena();
 
-    if (this.state.players.length >= MIN_PLAYERS_TO_START && this.state.gamePhase === 'waiting') {
+    if (this.state.gamePhase === 'playing') {
+      // Mid-game join: give invulnerability and send current state so client renders immediately
+      player.invulnTimer = RESPAWN_INVULN_TIME + 2; // extra grace period
+      player.energy = RESPAWN_ENERGY;
+      socket.emit('game:started', this.state);
+      console.log(`[LINK.IO] 🔄 ${player.name} joined mid-game in room ${this.code}`);
+    } else if (this.state.players.length >= MIN_PLAYERS_TO_START && this.state.gamePhase === 'waiting') {
       if (this.startTimeout) clearTimeout(this.startTimeout);
       this.startTimeout = setTimeout(() => this.startGame(), 3000);
     }
@@ -916,17 +926,39 @@ export class GameRoom {
       return;
     }
 
-    // Update ALL players (alive and dead for respawn)
+    // --- Respawn pass (before index build, may add core nodes) ---
     for (const player of this.state.players) {
-      // Respawn timer countdown
       if (!player.alive && player.respawnTimer > 0) {
         player.respawnTimer -= deltaTime;
         if (player.respawnTimer <= 0) {
           this.respawnPlayer(player);
         }
-        continue; // skip other updates for dead players
       }
+    }
 
+    // --- Build lookup indexes ONCE per tick — O(N+L+P) amortized ---
+    this.nodeMap.clear();
+    this.playerMap.clear();
+    this.nodesByOwner.clear();
+    this.linksByOwner.clear();
+    this.linkMap.clear();
+    for (const n of this.state.nodes) {
+      this.nodeMap.set(n.id, n);
+      const key = n.owner ?? '';
+      const arr = this.nodesByOwner.get(key);
+      if (arr) arr.push(n);
+      else this.nodesByOwner.set(key, [n]);
+    }
+    for (const l of this.state.links) {
+      this.linkMap.set(l.id, l);
+      const arr = this.linksByOwner.get(l.owner);
+      if (arr) arr.push(l);
+      else this.linksByOwner.set(l.owner, [l]);
+    }
+    for (const p of this.state.players) this.playerMap.set(p.id, p);
+
+    // --- Update alive players ---
+    for (const player of this.state.players) {
       if (!player.alive) continue;
 
       // Invulnerability countdown
@@ -951,10 +983,13 @@ export class GameRoom {
         }
       }
 
-      // Mega nodes reduce cooldowns faster (count inline, no .filter())
+      // Mega nodes reduce cooldowns faster — use owner index
       let megaNodeCount = 0;
-      for (const n of this.state.nodes) {
-        if (n.owner === player.id && n.isMegaNode) megaNodeCount++;
+      const _ownedNodes = this.nodesByOwner.get(player.id);
+      if (_ownedNodes) {
+        for (const n of _ownedNodes) {
+          if (n.isMegaNode) megaNodeCount++;
+        }
       }
       if (megaNodeCount > 0) {
         for (const ab of ['surge', 'shield', 'emp', 'warp'] as AbilityType[]) {
@@ -980,14 +1015,25 @@ export class GameRoom {
         }
       }
 
-      // Comeback mechanic: players with fewer nodes get energy boost
-      if (player.nodeCount <= 3 && player.alive) {
-        let aliveCount = 0; let totalNodes = 0;
-        for (const p of this.state.players) { if (p.alive) { aliveCount++; totalNodes += p.nodeCount; } }
+      // Comeback mechanic: scaled underdog boost based on how far behind you are
+      if (player.alive) {
+        let aliveCount = 0; let totalNodes = 0; let maxNodes = 0;
+        for (const p of this.state.players) {
+          if (p.alive) { aliveCount++; totalNodes += p.nodeCount; maxNodes = Math.max(maxNodes, p.nodeCount); }
+        }
         const avgNodes = totalNodes / Math.max(aliveCount, 1);
-        if (player.nodeCount < avgNodes * 0.5) {
-          // Underdog boost: faster energy regen (nerfed from 2)
-          player.energy += 1 * deltaTime;
+        if (player.nodeCount <= 3) {
+          // Flat base boost for tiny networks (just respawned)
+          player.energy += 3 * deltaTime;
+        }
+        if (player.nodeCount < avgNodes * 0.6 && avgNodes > 3) {
+          // Scaled boost: bigger gap = bigger boost
+          const gap = (avgNodes - player.nodeCount) / Math.max(avgNodes, 1);
+          player.energy += (2 + gap * 6) * deltaTime;
+        }
+        // Extra catchup when a dominant player exists (2x+ your nodes)
+        if (maxNodes > player.nodeCount * 2 && player.nodeCount <= 5) {
+          player.energy += 2 * deltaTime;
         }
       }
 
@@ -1020,12 +1066,13 @@ export class GameRoom {
         const now = this.tickCount / TICK_RATE;
         if (now - lastMagnet >= magnetCooldown && player.energy >= magnetEnergyCost) {
           let claimed = false;
-          for (const owned of this.state.nodes) {
+          const _magnetOwned = this.nodesByOwner.get(player.id) || [];
+          const _magnetNeutral = this.nodesByOwner.get('') || [];
+          for (const owned of _magnetOwned) {
             if (claimed) break;
-            if (owned.owner !== player.id) continue;
-            for (const node of this.state.nodes) {
+            for (const node of _magnetNeutral) {
               if (claimed) break;
-              if (node.owner || node.isCore) continue;
+              if (node.isCore) continue;
               const dx = node.position.x - owned.position.x;
               const dy = node.position.y - owned.position.y;
               if (dx * dx + dy * dy < magnetRangeSq) {
@@ -1078,8 +1125,8 @@ export class GameRoom {
     // Player WASD movement — momentum-based, costs energy, mass slows you
     for (const player of this.state.players) {
       if (!player.alive) continue;
-      const coreNode = this.state.nodes.find((n: GameNode) => n.id === player.coreNodeId && n.owner === player.id);
-      if (!coreNode) continue;
+      const coreNode = this.nodeMap.get(player.coreNodeId);
+      if (!coreNode || coreNode.owner !== player.id) continue;
 
       const input = this.playerMoveInputs.get(player.id);
       let vel = this.playerVelocities.get(player.id) || { x: 0, y: 0 };
@@ -1133,7 +1180,7 @@ export class GameRoom {
           if (link.fromNodeId !== coreNode.id && link.toNodeId !== coreNode.id) continue;
 
           const otherNodeId = link.fromNodeId === coreNode.id ? link.toNodeId : link.fromNodeId;
-          const otherNode = this.state.nodes.find((n: GameNode) => n.id === otherNodeId);
+          const otherNode = this.nodeMap.get(otherNodeId);
           if (!otherNode) continue;
 
           const dx = coreNode.position.x - otherNode.position.x;
@@ -1153,7 +1200,7 @@ export class GameRoom {
             );
             if (result.length > 0) {
               for (const nodeId of result) {
-                const n = this.state.nodes.find((nd: GameNode) => nd.id === nodeId);
+                const n = this.nodeMap.get(nodeId);
                 if (n) { n.owner = null; n.energy = 0; }
               }
               this.io.to(this.id).emit('game:networkCollapsed', {
@@ -1192,10 +1239,10 @@ export class GameRoom {
       this.state.links, this.state.nodes, this.state.players, deltaTime
     );
     for (const linkId of decayedLinkIds) {
-      const linkIdx = this.state.links.findIndex((l: GameLink) => l.id === linkId);
-      if (linkIdx !== -1) {
-        const link = this.state.links[linkIdx];
-        this.state.links.splice(linkIdx, 1);
+      const link = this.linkMap.get(linkId);
+      if (link) {
+        const linkIdx = this.state.links.indexOf(link);
+        if (linkIdx !== -1) this.state.links.splice(linkIdx, 1);
         this.io.to(this.id).emit('game:linkDestroyed', { linkId, reason: 'decay' });
 
         // Check for disconnected nodes from decay
@@ -1205,7 +1252,7 @@ export class GameRoom {
         if (disconnected.length > 0) {
           const disconnectedSet = new Set(disconnected);
           for (const nodeId of disconnected) {
-            const node = this.state.nodes.find((n: GameNode) => n.id === nodeId);
+            const node = this.nodeMap.get(nodeId);
             if (node && !node.isCore) {
               node.owner = null;
               node.energy = 0;
@@ -1231,7 +1278,7 @@ export class GameRoom {
       this.io.to(this.id).emit('game:networkCollapsed', { nodeIds, playerId });
       this.io.to(this.id).emit('game:nodesClaimed', { nodeIds, owner: null });
 
-      const victim = this.state.players.find((p: Player) => p.id === playerId);
+      const victim = this.playerMap.get(playerId) || null;
       for (const otherPlayer of this.state.players) {
         if (otherPlayer.id === playerId || !otherPlayer.alive) continue;
         const hasNearbyLinks = this.state.links.some((l: GameLink) => {
@@ -1249,13 +1296,9 @@ export class GameRoom {
     }
 
     // ============ CORE DAMAGE — HP SYSTEM ============
-    // Reuse persistent lookup maps (rebuilt once per tick at top)
+    // Indexes already built at tick start
     const nodeMap = this.nodeMap;
-    nodeMap.clear();
-    for (const n of this.state.nodes) nodeMap.set(n.id, n);
     const playerMap = this.playerMap;
-    playerMap.clear();
-    for (const p of this.state.players) playerMap.set(p.id, p);
 
     // Track which cores are being attacked (for health regen check later)
     const attackedCores = new Set<string>();
@@ -1370,7 +1413,8 @@ export class GameRoom {
         // Find the killer — the last player who damaged them
         let killer: Player | null = null;
         if (player.lastDamagedBy) {
-          killer = this.state.players.find((p: Player) => p.id === player.lastDamagedBy && p.alive) || null;
+          const _candidate = this.playerMap.get(player.lastDamagedBy);
+          killer = (_candidate && _candidate.alive) ? _candidate : null;
         }
         // Fallback: find closest active enemy with links near their core
         if (!killer) {

@@ -44,6 +44,7 @@ export class RoomManager {
   private playerRooms = new Map<string, string>(); // socketId -> roomId
   private lobbies = new Map<string, Lobby>();       // code -> lobby
   private playerLobbies = new Map<string, string>(); // socketId -> lobbyCode
+  private lobbyToRoom = new Map<string, string>();   // lobbyCode -> roomId (for rejoin after game starts)
   private teamsQueue: QueueEntry[] = [];            // queue for 2v2 matchmaking
   private io: Server<ClientToServerEvents, ServerToClientEvents>;
 
@@ -93,10 +94,20 @@ export class RoomManager {
   // ─── FFA Quick Play ────────────────────────────────────
   private quickPlay(socket: Socket<ClientToServerEvents, ServerToClientEvents>, name: string): void {
     let room: GameRoom | undefined;
+    // First try to find a waiting room
     for (const [, r] of this.rooms) {
       if (!r.isFull && r.gamePhase === 'waiting') {
         room = r;
         break;
+      }
+    }
+    // If no waiting room, join an active playing room with space
+    if (!room) {
+      for (const [, r] of this.rooms) {
+        if (!r.isFull && r.gamePhase === 'playing') {
+          room = r;
+          break;
+        }
       }
     }
 
@@ -205,8 +216,15 @@ export class RoomManager {
       return;
     }
 
-    if (lobby.status !== 'waiting') {
-      socket.emit('room:error', { message: 'Game already in progress.' });
+    // If lobby game already started, redirect player into the active room
+    if (lobby.status === 'in-game') {
+      // Find the room that was launched from this lobby by checking room codes
+      const activeRoom = this.findActiveRoomByLobbyCode(code);
+      if (activeRoom && !activeRoom.isFull) {
+        this.joinRoom(socket, activeRoom, name);
+        return;
+      }
+      socket.emit('room:error', { message: 'Game already in progress and room is full.' });
       return;
     }
 
@@ -340,6 +358,9 @@ export class RoomManager {
     const room = new GameRoom(this.io, roomCode, lobby.gameMode);
     this.rooms.set(room.id, room);
 
+    // Track lobby→room mapping so refreshed players can rejoin via lobby code
+    this.lobbyToRoom.set(lobby.code, room.id);
+
     // Add players with their selected teams
     for (const [socketId, lp] of lobby.players) {
       this.joinRoom(lp.socket, room, lp.name, lp.team);
@@ -348,8 +369,8 @@ export class RoomManager {
       this.playerLobbies.delete(socketId);
     }
 
-    // Clean up lobby
-    this.lobbies.delete(lobby.code);
+    // Keep lobby entry so players can rejoin via lobby code (don't delete)
+    // this.lobbies.delete(lobby.code);  -- kept alive for rejoin
 
     console.log(`[LINK.IO] Lobby ${lobby.code} launched game in room ${roomCode}`);
   }
@@ -415,13 +436,14 @@ export class RoomManager {
 
   // ─── Room Management ──────────────────────────────────
   private joinByCode(socket: Socket<ClientToServerEvents, ServerToClientEvents>, name: string, code: string): void {
-    const room = this.findRoomByCode(code.toUpperCase());
+    const upperCode = code.toUpperCase();
+    const room = this.findRoomByCode(upperCode);
 
     if (!room) {
       // Try as lobby
-      const lobby = this.lobbies.get(code.toUpperCase());
+      const lobby = this.lobbies.get(upperCode);
       if (lobby) {
-        this.joinLobby(socket, name, code.toUpperCase());
+        this.joinLobby(socket, name, upperCode);
         return;
       }
       socket.emit('room:error', { message: 'Room not found. Check the code and try again.' });
@@ -430,6 +452,12 @@ export class RoomManager {
 
     if (room.isFull) {
       socket.emit('room:error', { message: 'Room is full.' });
+      return;
+    }
+
+    // Allow joining rooms that are waiting OR playing (mid-game join)
+    if (room.gamePhase === 'ended') {
+      socket.emit('room:error', { message: 'That game has already ended.' });
       return;
     }
 
@@ -479,10 +507,26 @@ export class RoomManager {
       if (room.isEmpty()) {
         room.destroy();
         this.rooms.delete(roomId);
+        // Clean up lobby→room mappings that pointed to this room
+        for (const [lobbyCode, rId] of this.lobbyToRoom) {
+          if (rId === roomId) {
+            this.lobbyToRoom.delete(lobbyCode);
+            this.lobbies.delete(lobbyCode);
+          }
+        }
       }
     }
 
     this.playerRooms.delete(socketId);
+  }
+
+  /** Find the active game room that was launched from a lobby */
+  private findActiveRoomByLobbyCode(lobbyCode: string): GameRoom | undefined {
+    const roomId = this.lobbyToRoom.get(lobbyCode);
+    if (!roomId) return undefined;
+    const room = this.rooms.get(roomId);
+    if (!room || room.gamePhase === 'ended') return undefined;
+    return room;
   }
 
   private findRoomByCode(code: string): GameRoom | undefined {

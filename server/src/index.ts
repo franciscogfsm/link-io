@@ -26,6 +26,9 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
   },
   pingInterval: 10000,
   pingTimeout: 5000,
+  perMessageDeflate: {
+    threshold: 512, // only compress messages > 512 bytes
+  },
 });
 
 const roomManager = new RoomManager(io);
