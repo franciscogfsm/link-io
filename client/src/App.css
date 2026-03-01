@@ -1089,3 +1089,124 @@ html, body, #root {
   pointer-events: none;
   animation: fadeIn 0.3s ease;
 }
+
+/* ==================== Death Overlay ==================== */
+
+.death-overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(ellipse at center, rgba(80, 0, 0, 0.4) 0%, rgba(0, 0, 0, 0.7) 100%);
+  z-index: 30;
+  pointer-events: none;
+  animation: deathFadeIn 0.5s ease;
+}
+
+@keyframes deathFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.death-title {
+  font-family: var(--font-display);
+  font-size: 56px;
+  font-weight: 900;
+  color: #ff2244;
+  text-shadow: 0 0 40px rgba(255, 0, 50, 0.6), 0 0 80px rgba(255, 0, 50, 0.3);
+  letter-spacing: 8px;
+  animation: deathPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes deathPulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.04); opacity: 0.85; }
+}
+
+.death-killer {
+  font-family: var(--font-body);
+  font-size: 18px;
+  color: rgba(255, 255, 255, 0.7);
+  margin-top: 12px;
+}
+
+.death-killer-name {
+  color: #ff6688;
+  font-weight: 700;
+  text-shadow: 0 0 12px rgba(255, 100, 130, 0.5);
+}
+
+.death-respawn-timer {
+  font-family: var(--font-display);
+  font-size: 22px;
+  color: rgba(255, 255, 255, 0.6);
+  margin-top: 24px;
+  letter-spacing: 2px;
+}
+
+.death-timer-value {
+  font-size: 32px;
+  font-weight: 900;
+  color: #00f0ff;
+  text-shadow: 0 0 20px rgba(0, 240, 255, 0.6);
+}
+
+.death-hint {
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.3);
+  margin-top: 16px;
+  letter-spacing: 1px;
+}
+
+/* ==================== Kill Streak Announcement ==================== */
+
+.streak-announcement {
+  position: absolute;
+  top: 20%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  z-index: 35;
+  pointer-events: none;
+  animation: streakSlam 0.4s cubic-bezier(0.17, 0.67, 0.2, 1.2);
+}
+
+@keyframes streakSlam {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(2);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+.streak-label {
+  font-family: var(--font-display);
+  font-size: 42px;
+  font-weight: 900;
+  color: #ffbe0b;
+  text-shadow:
+    0 0 30px rgba(255, 190, 11, 0.7),
+    0 0 60px rgba(255, 100, 0, 0.4),
+    0 2px 4px rgba(0, 0, 0, 0.8);
+  letter-spacing: 4px;
+  animation: streakGlow 0.8s ease-in-out infinite alternate;
+}
+
+@keyframes streakGlow {
+  from { text-shadow: 0 0 30px rgba(255, 190, 11, 0.7), 0 0 60px rgba(255, 100, 0, 0.4); }
+  to { text-shadow: 0 0 50px rgba(255, 190, 11, 0.9), 0 0 100px rgba(255, 100, 0, 0.6); }
+}
+
+.streak-count {
+  font-family: var(--font-display);
+  font-size: 18px;
+  color: rgba(255, 255, 255, 0.7);
+  letter-spacing: 3px;
+  margin-top: 6px;
+}

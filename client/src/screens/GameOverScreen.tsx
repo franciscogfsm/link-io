@@ -47,8 +47,9 @@ export default function GameOverScreen({ winner, scores, currentPlayerId, onPlay
             <div className="gameover-score-stats">
               <span className="gameover-score-metric">Score: {Math.floor(player.score)}</span>
               <span className="gameover-score-metric">Kills: {player.killCount}</span>
+              <span className="gameover-score-metric">Deaths: {player.deaths}</span>
+              <span className="gameover-score-metric">Best Streak: {player.bestStreak}</span>
               <span className="gameover-score-metric">Nodes: {player.nodeCount}</span>
-              <span className="gameover-score-metric">Energy: {Math.floor(player.energy)}</span>
             </div>
           </div>
         ))}

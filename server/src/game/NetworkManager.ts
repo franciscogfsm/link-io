@@ -129,21 +129,37 @@ export class NetworkManager {
   handleCombat(
     links: GameLink[],
     nodes: GameNode[],
-    deltaTime: number
+    deltaTime: number,
+    players?: Player[]
   ): { destroyedLinks: string[]; collapsedNodes: Map<string, string[]> } {
     const destroyedLinks: string[] = [];
     const collapsedNodes = new Map<string, string[]>();
 
+    // Build set of invulnerable player IDs
+    const invulnerable = new Set<string>();
+    if (players) {
+      for (const p of players) {
+        if (p.invulnTimer > 0) invulnerable.add(p.id);
+      }
+    }
+
     // Find conflicting links (different owners connecting same nodes)
     for (let i = 0; i < links.length; i++) {
       const link = links[i];
+
+      // Skip damage for invulnerable players' links
+      if (invulnerable.has(link.owner)) continue;
+
       const toNode = nodes.find((n) => n.id === link.toNodeId);
       if (!toNode) continue;
 
       // If the target node is owned by someone else, damage the link
-      // But NOT if the link is shielded!
+      // But NOT if the link is shielded or their owner is invulnerable
       if (toNode.owner && toNode.owner !== link.owner && !link.shielded) {
-        link.health -= this.combatDamagePerSecond * deltaTime;
+        // Don't deal damage if the node owner is invulnerable
+        if (!invulnerable.has(toNode.owner)) {
+          link.health -= this.combatDamagePerSecond * deltaTime;
+        }
       }
 
       // Check for counter-links (enemy links touching your nodes)

@@ -4,6 +4,14 @@
 // ============================================================
 
 import type { GameState, GameNode, GameLink, Player, Vec2 } from '../../../shared/types';
+
+/** Set of player IDs currently invulnerable (managed by GameScreen). */
+let invulnerablePlayerIds: Set<string> = new Set();
+export function setInvulnerablePlayers(ids: Set<string>) { invulnerablePlayerIds = ids; }
+
+/** Set of player IDs currently dead (managed by GameScreen). */
+let deadPlayerIds: Set<string> = new Set();
+export function setDeadPlayers(ids: Set<string>) { deadPlayerIds = ids; }
 import { Camera } from './Camera';
 import { ParticleSystem } from './ParticleSystem';
 import { getPlayerColor, NEUTRAL_COLOR } from '../utils/colors';
@@ -593,6 +601,38 @@ export class GameRenderer {
     ctx.beginPath();
     ctx.arc(x, y, node.radius * 0.3, 0, Math.PI * 2);
     ctx.fill();
+
+    // Invulnerability shield - pulsing rainbow ring
+    if (node.owner && invulnerablePlayerIds.has(node.owner)) {
+      const shieldPulse = 0.5 + 0.5 * Math.sin(this.time * 8);
+      const hue = (this.time * 120) % 360;
+      ctx.strokeStyle = `hsla(${hue}, 100%, 70%, ${0.4 + shieldPulse * 0.4})`;
+      ctx.lineWidth = 3;
+      ctx.shadowColor = `hsl(${hue}, 100%, 60%)`;
+      ctx.shadowBlur = 15;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.arc(x, y, node.radius + 10 + shieldPulse * 4, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.shadowBlur = 0;
+
+      // Inner white pulse
+      ctx.strokeStyle = `rgba(255, 255, 255, ${0.2 + shieldPulse * 0.2})`;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(x, y, node.radius + 5, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // Ghost effect for dead players' remaining nodes (fade them out)
+    if (node.owner && deadPlayerIds.has(node.owner)) {
+      ctx.globalAlpha = 0.3;
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+      ctx.beginPath();
+      ctx.arc(x, y, node.radius + 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
     ctx.restore();
   }

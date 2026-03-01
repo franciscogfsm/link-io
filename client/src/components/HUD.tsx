@@ -11,9 +11,11 @@ interface HUDProps {
   state: GameState;
   roomCode: string;
   onUseAbility: (ability: AbilityType) => void;
+  isDead?: boolean;
+  respawnTimer?: number;
 }
 
-export default function HUD({ player, state, roomCode, onUseAbility }: HUDProps) {
+export default function HUD({ player, state, roomCode, onUseAbility, isDead, respawnTimer }: HUDProps) {
   const minutes = Math.floor(state.timeRemaining / 60);
   const seconds = Math.floor(state.timeRemaining % 60);
   const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
@@ -98,7 +100,48 @@ export default function HUD({ player, state, roomCode, onUseAbility }: HUDProps)
                 <span className="hud-stat-value">{player.killCount}</span>
                 <span className="hud-stat-label">Kills</span>
               </div>
+              <div className="hud-stat">
+                <span className="hud-stat-value">{player.deaths}</span>
+                <span className="hud-stat-label">Deaths</span>
+              </div>
             </div>
+
+            {/* Kill streak indicator */}
+            {player.killStreak >= 3 && (
+              <div className="hud-streak" style={{
+                background: player.killStreak >= 10 ? 'rgba(255, 50, 50, 0.25)' :
+                             player.killStreak >= 7 ? 'rgba(255, 150, 0, 0.25)' :
+                             'rgba(255, 190, 11, 0.2)',
+                border: `1px solid ${player.killStreak >= 10 ? '#ff3232' : player.killStreak >= 7 ? '#ff9600' : '#ffbe0b'}`,
+                borderRadius: 6,
+                padding: '4px 10px',
+                marginTop: 6,
+                textAlign: 'center',
+                fontSize: 12,
+                fontFamily: 'Orbitron, monospace',
+                color: player.killStreak >= 10 ? '#ff4444' : '#ffbe0b',
+                textShadow: `0 0 8px ${player.killStreak >= 10 ? '#ff4444' : '#ffbe0b'}`,
+              }}>
+                🔥 {player.killStreak} KILL STREAK
+              </div>
+            )}
+
+            {/* Invulnerability indicator */}
+            {player.invulnTimer > 0 && (
+              <div style={{
+                background: 'rgba(0, 240, 255, 0.15)',
+                border: '1px solid rgba(0, 240, 255, 0.4)',
+                borderRadius: 6,
+                padding: '4px 10px',
+                marginTop: 6,
+                textAlign: 'center',
+                fontSize: 11,
+                fontFamily: 'Orbitron, monospace',
+                color: '#00f0ff',
+              }}>
+                🛡️ INVULNERABLE {Math.ceil(player.invulnTimer)}s
+              </div>
+            )}
           </div>
 
           {/* Combo display */}

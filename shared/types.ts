@@ -53,6 +53,12 @@ export interface Player {
   alive: boolean;
   score: number;        // cumulative score for ranking
   killCount: number;    // nodes stolen from enemies
+  deaths: number;       // times eliminated
+  killStreak: number;   // consecutive kills without dying
+  bestStreak: number;   // best kill streak this game
+  respawnTimer: number; // seconds until respawn (0 = alive)
+  invulnTimer: number;  // seconds of invulnerability after respawn
+  lastKilledBy: string | null; // player id who last killed you
   combo: number;        // current link combo
   comboTimer: number;   // seconds until combo resets
   abilityCooldowns: AbilityCooldown;
@@ -121,4 +127,11 @@ export interface ServerToClientEvents {
   'game:combo': (data: { playerId: string; combo: number; bonusEnergy: number }) => void;
   'game:emote': (data: { playerId: string; emote: string; position: Vec2 }) => void;
   'game:screenShake': (data: { intensity: number; duration: number }) => void;
+  'game:playerEliminated': (data: {
+    victimId: string; killerId: string | null;
+    killerStreak: number; isRevenge: boolean;
+    victimPosition: Vec2;
+  }) => void;
+  'game:playerRespawned': (data: { playerId: string; coreNodeId: string; position: Vec2 }) => void;
+  'game:killStreak': (data: { playerId: string; streak: number; label: string }) => void;
 }

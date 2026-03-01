@@ -14,7 +14,7 @@ export class Interpolation {
   private prevState: Map<string, NodeSnapshot> = new Map();
   private targetState: Map<string, NodeSnapshot> = new Map();
   private lastUpdateTime = 0;
-  private updateInterval = 50; // 20 TPS = 50ms
+  private updateInterval = 33; // 30 TPS = ~33ms
 
   pushState(state: GameState): void {
     // Move target → prev

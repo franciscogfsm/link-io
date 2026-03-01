@@ -10,6 +10,7 @@ import type {
   Player, GameLink, KillFeedEntry, AbilityType
 } from '../../../shared/types';
 import { GameRenderer } from '../game/GameRenderer';
+import { setInvulnerablePlayers, setDeadPlayers } from '../game/GameRenderer';
 import { Camera } from '../game/Camera';
 import { InputHandler } from '../game/InputHandler';
 import { Interpolation } from '../game/Interpolation';
@@ -34,6 +35,10 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [killFeed, setKillFeed] = useState<KillFeedEntry[]>([]);
   const [comboDisplay, setComboDisplay] = useState<{ combo: number; bonus: number } | null>(null);
+  const [respawnTimer, setRespawnTimer] = useState(0);
+  const [isDead, setIsDead] = useState(false);
+  const [killStreakAnnouncement, setKillStreakAnnouncement] = useState<{ label: string; streak: number } | null>(null);
+  const [deathInfo, setDeathInfo] = useState<{ killerName: string; isRevenge: boolean } | null>(null);
   const rendererRef = useRef<GameRenderer | null>(null);
   const cameraRef = useRef<Camera | null>(null);
   const inputRef = useRef<InputHandler | null>(null);
@@ -215,6 +220,85 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
       setTimeout(() => setErrorMsg(null), 2000);
     });
 
+    // === NEW: Elimination, respawn, and kill streak events ===
+
+    socket.on('game:playerEliminated', (data) => {
+      const state = stateRef.current;
+      if (!state) return;
+
+      // Spawn death explosion at victim position
+      const victimPlayer = state.players.find((p) => p.id === data.victimId);
+      const victimColor = victimPlayer ? getPlayerColor(victimPlayer.color).main : '#ff006e';
+      renderer.particles.spawnDeathExplosion(data.victimPosition.x, data.victimPosition.y, victimColor);
+      renderer.triggerScreenShake(data.victimId === playerId ? 12 : 5, 0.4);
+
+      if (data.victimId === playerId) {
+        setIsDead(true);
+        // Find killer name
+        const killer = state.players.find((p) => p.id === data.killerId);
+        setDeathInfo({
+          killerName: killer?.name || 'Unknown',
+          isRevenge: data.isRevenge,
+        });
+      }
+
+      // Floating text for the kill
+      if (data.killerId) {
+        const killer = state.players.find((p) => p.id === data.killerId);
+        if (killer) {
+          renderer.addFloatingText(
+            data.isRevenge ? '💀 REVENGE!' : '💀 ELIMINATED!',
+            data.victimPosition.x,
+            data.victimPosition.y - 30,
+            data.isRevenge ? '#ff4444' : killer.color,
+            data.isRevenge ? 28 : 22
+          );
+        }
+      }
+    });
+
+    socket.on('game:playerRespawned', (data) => {
+      if (data.playerId === playerId) {
+        setIsDead(false);
+        setDeathInfo(null);
+        setRespawnTimer(0);
+      }
+      // Spawn respawn particles
+      const state = stateRef.current;
+      if (state) {
+        const player = state.players.find((p) => p.id === data.playerId);
+        const color = player ? getPlayerColor(player.color).main : '#00f0ff';
+        renderer.particles.spawnRespawnEffect(data.position.x, data.position.y, color);
+        if (data.playerId === playerId) {
+          renderer.addFloatingText('⚡ RESPAWNED!', data.position.x, data.position.y - 40, '#00f0ff', 24);
+        }
+      }
+    });
+
+    socket.on('game:killStreak', (data) => {
+      if (data.playerId === playerId) {
+        setKillStreakAnnouncement({ label: data.label, streak: data.streak });
+        setTimeout(() => setKillStreakAnnouncement(null), 3000);
+      }
+      // Floating text for streak
+      const state = stateRef.current;
+      if (state) {
+        const player = state.players.find((p) => p.id === data.playerId);
+        if (player) {
+          const coreNode = state.nodes.find((n) => n.id === player.coreNodeId);
+          if (coreNode) {
+            renderer.addFloatingText(
+              `🔥 ${data.label}! (${data.streak})`,
+              coreNode.position.x,
+              coreNode.position.y - 60,
+              '#ffbe0b',
+              data.streak >= 10 ? 32 : data.streak >= 7 ? 28 : 24
+            );
+          }
+        }
+      }
+    });
+
     // Game loop
     const gameLoop = (time: number) => {
       const dt = lastTimeRef.current ? (time - lastTimeRef.current) / 1000 : 0.016;
@@ -222,12 +306,27 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
 
       const state = stateRef.current;
       if (state) {
+        // Sync invulnerability & dead sets for renderer
+        const invulnSet = new Set<string>();
+        const deadSet = new Set<string>();
+        for (const p of state.players) {
+          if (p.invulnTimer > 0) invulnSet.add(p.id);
+          if (!p.alive) deadSet.add(p.id);
+        }
+        setInvulnerablePlayers(invulnSet);
+        setDeadPlayers(deadSet);
+
+        // Update respawn timer for local player
+        const localPlayer = state.players.find((p) => p.id === playerId);
+        if (localPlayer && localPlayer.respawnTimer > 0) {
+          setRespawnTimer(localPlayer.respawnTimer);
+        }
+
         const interpolatedNodes = interp.interpolateNodes(state.nodes);
         const interpolatedState = { ...state, nodes: interpolatedNodes };
 
-        const player = state.players.find((p) => p.id === playerId);
-        if (player) {
-          const coreNode = interpolatedNodes.find((n) => n.id === player.coreNodeId);
+        if (localPlayer) {
+          const coreNode = interpolatedNodes.find((n) => n.id === localPlayer.coreNodeId);
           if (coreNode) camera.followTarget(coreNode.position.x, coreNode.position.y);
         }
 
@@ -257,6 +356,9 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
       socket.off('game:abilityUsed');
       socket.off('game:emote');
       socket.off('game:error');
+      socket.off('game:playerEliminated');
+      socket.off('game:playerRespawned');
+      socket.off('game:killStreak');
     };
   }, [socket, playerId, handleCreateLink, handleUseAbility, onGameOver]);
 
@@ -280,11 +382,38 @@ export default function GameScreen({ socket, playerId, roomCode, onGameOver }: G
             state={gameState}
             roomCode={roomCode}
             onUseAbility={handleUseAbility}
+            isDead={isDead}
+            respawnTimer={respawnTimer}
           />
           <div className="hud-right">
             <Leaderboard players={gameState.players} currentPlayerId={playerId} />
             <KillFeed entries={killFeed} />
           </div>
+        </div>
+      )}
+
+      {/* Death overlay */}
+      {isDead && (
+        <div className="death-overlay">
+          <div className="death-title">ELIMINATED</div>
+          {deathInfo && (
+            <div className="death-killer">
+              {deathInfo.isRevenge ? '💀 Revenge by ' : 'Killed by '}
+              <span className="death-killer-name">{deathInfo.killerName}</span>
+            </div>
+          )}
+          <div className="death-respawn-timer">
+            Respawning in <span className="death-timer-value">{Math.ceil(respawnTimer)}</span>s
+          </div>
+          <div className="death-hint">Spectating...</div>
+        </div>
+      )}
+
+      {/* Kill streak announcement */}
+      {killStreakAnnouncement && (
+        <div className="streak-announcement">
+          <div className="streak-label">🔥 {killStreakAnnouncement.label} 🔥</div>
+          <div className="streak-count">{killStreakAnnouncement.streak} kills</div>
         </div>
       )}
 

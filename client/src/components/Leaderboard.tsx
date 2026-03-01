@@ -1,6 +1,6 @@
 // ============================================================
 // LINK.IO Client - Leaderboard
-// Live score rankings with kills and nodes
+// Live score rankings with kills, deaths, and streaks
 // ============================================================
 
 import type { Player } from '../../../shared/types';
@@ -8,6 +8,15 @@ import type { Player } from '../../../shared/types';
 interface LeaderboardProps {
   players: Player[];
   currentPlayerId: string;
+}
+
+function getStreakIcon(streak: number): string {
+  if (streak >= 15) return '💀';
+  if (streak >= 10) return '👑';
+  if (streak >= 7) return '⚡';
+  if (streak >= 5) return '🔥';
+  if (streak >= 3) return '✦';
+  return '';
 }
 
 export default function Leaderboard({ players, currentPlayerId }: LeaderboardProps) {
@@ -34,9 +43,12 @@ export default function Leaderboard({ players, currentPlayerId }: LeaderboardPro
           />
           <span className="leaderboard-name">
             {player.name}
-            {player.killCount > 0 && (
-              <span className="leaderboard-kills"> [Kills: {player.killCount}]</span>
+            {player.killStreak >= 3 && (
+              <span style={{ marginLeft: 4 }}>{getStreakIcon(player.killStreak)}</span>
             )}
+          </span>
+          <span className="leaderboard-kills" style={{ fontSize: 10, opacity: 0.7, marginRight: 4 }}>
+            {player.killCount}/{player.deaths}
           </span>
           <span className="leaderboard-energy">{Math.floor(player.score)}</span>
         </div>
