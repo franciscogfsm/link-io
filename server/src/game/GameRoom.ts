@@ -11,9 +11,12 @@ import type {
   ClientToServerEvents, ServerToClientEvents,
   KillFeedEntry, AbilityType, GameMode, MapEvent, UpgradeType
 } from '../../../shared/types.js';
-import { convergenceMultiplier } from '../../../shared/types.js';
 
 // Inlined from shared/types to avoid Render deploy ESM resolution issues
+function convergenceMultiplier(linkCount: number): number {
+  if (linkCount <= 1) return 1;
+  return 1 + Math.log2(linkCount) * 0.5;
+}
 const UPGRADE_MAX_TIER = 3;
 const UPGRADE_COSTS: Record<UpgradeType, number[]> = {
   fortify:    [120, 280, 500],

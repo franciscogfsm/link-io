@@ -4,7 +4,12 @@
 // ============================================================
 
 import type { GameNode, GameLink, Player } from '../../../shared/types.js';
-import { convergenceMultiplier } from '../../../shared/types.js';
+
+// Inlined from shared/types to avoid Render deploy ESM resolution issues
+function convergenceMultiplier(linkCount: number): number {
+  if (linkCount <= 1) return 1;
+  return 1 + Math.log2(linkCount) * 0.5;
+}
 
 let _nextLinkId = 1;
 
