@@ -7,14 +7,14 @@ import { v4 as uuidv4 } from 'uuid';
 import type { GameNode, GameLink, Player } from '../../../shared/types.js';
 
 export class NetworkManager {
-  private linkCostBase = 6;
-  private linkCostPerDistance = 0.012;
+  private linkCostBase = 10;
+  private linkCostPerDistance = 0.02;
   private maxLinkDistance = 350;
-  private baseEnergyPerNode = 0.6;     // nerfed from 1.2
+  private baseEnergyPerNode = 0.3;     // nerfed from 0.6
   private combatDamagePerSecond = 25;
-  private networkBonusMultiplier = 0.03; // nerfed from 0.06
-  private captureSpeed = 25; // % per second — 4s to capture a node
-  private siphonRate = 1.5; // energy stolen per second per attacking link (nerfed from 3)
+  private networkBonusMultiplier = 0.015; // nerfed from 0.03
+  private captureSpeed = 20; // % per second — 5s to capture a node
+  private siphonRate = 0.8; // energy stolen per second per attacking link (nerfed from 1.5)
 
   createLink(
     fromNodeId: string,
@@ -106,8 +106,8 @@ export class NetworkManager {
       }
 
       const networkMultiplier = 1 + (nodeCount - 1) * networkMultiplierBase;
-      const territoryBonus = nodeCount >= 10 ? 0.5 : nodeCount >= 5 ? 0.2 : 0;
-      const flowBonus = 1 + [0, 0.10, 0.20, 0.35][player.upgrades.flow];
+      const territoryBonus = nodeCount >= 15 ? 0.3 : nodeCount >= 8 ? 0.1 : 0;
+      const flowBonus = 1 + [0, 0.08, 0.15, 0.25][player.upgrades.flow];
 
       // Second pass: generate energy per owned node
       for (const node of nodes) {
@@ -119,9 +119,9 @@ export class NetworkManager {
         node.energy = Math.min(node.energy + generation * 0.5, 100);
       }
 
-      // Core passive gen (nerfed from 0.8)
+      // Core passive gen (nerfed from 0.4)
       if (nodeCount > 0) {
-        player.energy += 0.4 * deltaTime;
+        player.energy += 0.2 * deltaTime;
       }
 
       player.nodeCount = nodeCount;

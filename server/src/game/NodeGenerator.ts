@@ -72,7 +72,7 @@ export class NodeGenerator {
       isPowerNode,
       isMegaNode,
       isGoldNode,
-      goldEnergy: isGoldNode ? 8 + Math.floor(Math.random() * 8) : 0,
+      goldEnergy: isGoldNode ? 5 + Math.floor(Math.random() * 5) : 0,
       goldExpireTimer: isGoldNode ? 5 : 0,
       driftPhase: Math.random() * Math.PI * 2,
       driftSpeed: 0.2 + Math.random() * 0.5,

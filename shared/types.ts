@@ -65,21 +65,21 @@ export type UpgradeType =
 export const UPGRADE_MAX_TIER = 3;
 export const UPGRADE_COSTS: Record<UpgradeType, number[]> = {
   // DEFENSE
-  fortify:    [50,  100, 180],
-  regen:      [40,  90,  160],
-  thornAura:  [70,  130, 220],
+  fortify:    [120, 280, 500],
+  regen:      [100, 240, 450],
+  thornAura:  [150, 350, 600],
   // OFFENSE
-  power:      [60,  120, 200],
-  siphon:     [50,  100, 170],
-  corrosion:  [80,  150, 250],
+  power:      [130, 300, 550],
+  siphon:     [110, 260, 480],
+  corrosion:  [180, 400, 700],
   // ECONOMY
-  flow:       [40,  80,  150],
-  efficiency: [35,  75,  140],
-  magnet:     [60,  110, 190],
+  flow:       [90,  220, 420],
+  efficiency: [80,  200, 380],
+  magnet:     [140, 320, 550],
   // UTILITY
-  reach:      [45,  90,  160],
-  toughLinks: [50,  100, 170],
-  speed:      [55,  105, 180],
+  reach:      [100, 240, 440],
+  toughLinks: [110, 260, 480],
+  speed:      [120, 280, 500],
 };
 export const UPGRADE_LABELS: Record<UpgradeType, string> = {
   fortify: 'FORTIFY',
@@ -102,7 +102,7 @@ export const UPGRADE_DESCRIPTIONS: Record<UpgradeType, string[]> = {
   power:      ['+25% link dmg', '+50% link dmg', '+80% link dmg'],
   siphon:     ['+40% siphon', '+80% siphon', '+150% siphon'],
   corrosion:  ['AoE 10% splash', 'AoE 20% splash', 'AoE 35% splash'],
-  flow:       ['+10% energy', '+20% energy', '+35% energy'],
+  flow:       ['+8% energy', '+15% energy', '+25% energy'],
   efficiency: ['-20% link cost', '-35% link cost', '-50% link cost'],
   magnet:     ['Auto-grab 150px', 'Auto-grab 250px', 'Auto-grab 400px'],
   reach:      ['+15% range', '+30% range', '+50% range'],

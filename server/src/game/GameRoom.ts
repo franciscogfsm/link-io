@@ -15,18 +15,18 @@ import type {
 // Inlined from shared/types to avoid Render deploy ESM resolution issues
 const UPGRADE_MAX_TIER = 3;
 const UPGRADE_COSTS: Record<UpgradeType, number[]> = {
-  fortify:    [50,  100, 180],
-  regen:      [40,  90,  160],
-  thornAura:  [70,  130, 220],
-  power:      [60,  120, 200],
-  siphon:     [50,  100, 170],
-  corrosion:  [80,  150, 250],
-  flow:       [40,  80,  150],
-  efficiency: [35,  75,  140],
-  magnet:     [60,  110, 190],
-  reach:      [45,  90,  160],
-  toughLinks: [50,  100, 170],
-  speed:      [55,  105, 180],
+  fortify:    [120, 280, 500],
+  regen:      [100, 240, 450],
+  thornAura:  [150, 350, 600],
+  power:      [130, 300, 550],
+  siphon:     [110, 260, 480],
+  corrosion:  [180, 400, 700],
+  flow:       [90,  220, 420],
+  efficiency: [80,  200, 380],
+  magnet:     [140, 320, 550],
+  reach:      [100, 240, 440],
+  toughLinks: [110, 260, 480],
+  speed:      [120, 280, 500],
 };
 const DEFAULT_UPGRADES: PlayerUpgrades = {
   fortify: 0, regen: 0, thornAura: 0,
@@ -47,18 +47,18 @@ const NODES_PER_PLAYER = 15;         // extra neutral nodes spawned per player
 const TICK_RATE = 20; // lower tick rate for better server performance
 const TICK_INTERVAL = 1000 / TICK_RATE;
 const GAME_DURATION = 180;
-const INITIAL_ENERGY = 100;
+const INITIAL_ENERGY = 50;
 const MAX_PLAYERS = 8;
 const MIN_PLAYERS_TO_START = 2;
 const NEUTRAL_NODE_COUNT = 80;
 const COMBO_WINDOW = 3;
-const COMBO_BONUS_BASE = 2; // nerfed from 3
+const COMBO_BONUS_BASE = 1; // nerfed from 2
 
 // Click mechanics
 const CLICK_STREAK_WINDOW = 1.0;     // seconds to keep click streak alive
-const CLICK_BASE_ENERGY = 0.5;       // base energy per click (nerfed from 1)
-const CLICK_STREAK_BONUS = 0.25;     // extra energy per streak level (nerfed from 0.5)
-const CLICK_STREAK_CAP = 8;          // max streak level for bonus calculation
+const CLICK_BASE_ENERGY = 0.3;       // base energy per click (nerfed from 0.5)
+const CLICK_STREAK_BONUS = 0.1;      // extra energy per streak level (nerfed from 0.25)
+const CLICK_STREAK_CAP = 6;          // max streak level for bonus calculation
 const CLICK_COOLDOWN = 0.15;         // min seconds between clicks (anti-macro)
 const GOLD_NODE_SPAWN_INTERVAL = 30; // seconds between gold node spawns
 const GOLD_NODE_LIFETIME = 6;        // seconds before gold node despawns
@@ -66,7 +66,7 @@ const GOLD_NODE_LIFETIME = 6;        // seconds before gold node despawns
 // Respawn system
 const RESPAWN_TIME = 5; // seconds to respawn
 const RESPAWN_INVULN_TIME = 3; // seconds of invulnerability after respawn
-const RESPAWN_ENERGY = 60; // energy on respawn
+const RESPAWN_ENERGY = 30; // energy on respawn
 
 // Health system
 const PLAYER_MAX_HEALTH = 100;
@@ -373,7 +373,7 @@ export class GameRoom {
         eliminationScore += 100; // revenge bonus
       }
       killer.score += eliminationScore;
-      killer.energy += 8; // energy reward for kill (nerfed from 15)
+      killer.energy += 5; // energy reward for kill (nerfed from 8)
 
       // Kill feed
       let action = 'ELIMINATED';
@@ -760,7 +760,7 @@ export class GameRoom {
 
       // Gold nodes give bonus energy (heavily nerfed)
       if (isGold) {
-        const goldReward = Math.min(2 + Math.min(effectiveStreak, 3), node.goldEnergy);
+        const goldReward = Math.min(1 + Math.min(effectiveStreak, 2), node.goldEnergy);
         node.goldEnergy -= goldReward;
         energy += goldReward;
 
